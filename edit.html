@@ -55,7 +55,96 @@
                 <span class="input-header">year</span>
                 <input type="number" class="input-field" id="year" value="2025" required>
             </div>
-            <button class="accent-button" style="margin: 30px;">Edit</button>
+            <button class="accent-button" style="margin: 30px;">Save Changes</button>
         </div>
+
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                // helper functions because is_adult is radio buttons
+                function getIsAdultValue() {
+                    return document.querySelector('input[name="is_adult"]:checked')?.value || 'f'; // default to 'f'
+                }
+                function setIsAdultValue(value) {
+                    if (value === 'f' || value === 't') {
+                        document.getElementById(value).checked = true;
+                    }
+                }
+
+                const urlParams = new URLSearchParams(window.location.search);
+                const id = urlParams.get('id'); 
+
+                fetch(`/api/edit?id=${encodeURIComponent(id)}`)
+                    .then(response => {
+                        if (!response.ok) throw new Error('Failed to load record');
+                        return response.json();
+                    })
+                    .then(metadata => {
+                        const setVal = (id, value) => {
+                            const el = document.getElementById(id);
+                            if (el) {
+                                el.value = value || '';
+                            } else {
+                                console.warn(`Element with id="${id}" not found`);
+                            }
+                        };
+
+                        // loading current values
+                        setVal('primary_title', metadata.primary_title);
+                        setVal('original_title', metadata.original_title);
+                        setVal('title_type', metadata.title_type);
+                        //setVal('is_adult', metadata.is_adult);
+                        setIsAdultValue(metadata.is_adult);
+                        setVal('runtime_minutes', metadata.runtime_minutes);
+                        setVal('year', metadata.year);
+                    })
+                    .catch(error => console.error('Error fetching record:', error));
+
+                // saving the changes
+                function saveRecord() {
+                    console.log("✅ Save button clicked!");
+
+                    const getVal = (id) => {
+                        const el = document.getElementById(id);
+                        return el ? el.value : '';
+                    };
+
+                    const updatedData = {
+                        metadata_key: urlParams.get('id'),
+                        primary_title: document.getElementById('primary_title').value,
+                        original_title: document.getElementById('original_title').value,
+                        title_type: document.getElementById('title_type').value,
+                        //is_adult: document.getElementById('is_adult').value,
+                        is_adult: getIsAdultValue(),
+                        runtime_minutes: document.getElementById('runtime_minutes').value,
+                        year: document.getElementById('year').value,
+                    };
+
+                    fetch('/api/update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(updatedData)
+                    })
+
+                    .then(response => response.json())
+                    
+                    .then(() => {
+                        alert('✅ Record updated successfully!');
+                        // back to data list
+                        window.location.href = 'data.html';
+                    })
+                    .catch(error => {
+                        console.error('Save error:', error);
+                        alert('❌ Failed to save: ' + error.message);
+                    });
+                }
+
+                const btn = document.querySelector('.accent-button');
+                if (btn) {
+                    btn.addEventListener('click', saveRecord);
+                } else {
+                    console.error('Save button (.accent-button) not found');
+                }
+            });
+        </script>
     </body>
 </html>

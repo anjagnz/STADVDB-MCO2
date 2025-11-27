@@ -9,6 +9,79 @@
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     </head>
     <body>
+        <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const tbody = document.getElementById('dataList');
+
+            fetch('http://localhost:3000/data')
+                .then(response => response.json())
+                .then(metadata => {
+                     tbody.innerHTML = '';
+                    
+                    // if no data available
+                     if (metadata.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="10">No data available</td></tr>`;
+                        return;
+                    }
+                    
+                    // populate the table
+                    // const dataList = document.getElementById('dataList');
+                    metadata.forEach(data => {
+                        const row = document.createElement('tr');
+
+                        // Helper to create a cell
+                        const createCell = (text) => {
+                        const td = document.createElement('td');
+                        td.textContent = text == null ? '' : text;
+                        return td;
+                        };
+
+                        // Append data cells
+                        row.appendChild(createCell(data.metadata_key));
+                        row.appendChild(createCell(data.tconst));
+                        row.appendChild(createCell(data.primary_title));
+                        row.appendChild(createCell(data.original_title));
+                        row.appendChild(createCell(data.title_type));
+                        row.appendChild(createCell(data.is_adult));
+                        row.appendChild(createCell(data.runtime_minutes));
+                        row.appendChild(createCell(data.year));
+
+                        // Edit button cell
+                        const editCell = document.createElement('td');
+                        const editButton = document.createElement('button');
+                        editButton.className = 'icon-button';
+                        editButton.onclick = () => {
+                        window.location.href = `edit.html?id=${encodeURIComponent(data.metadata_key)}`;
+                        };
+                        const editIcon = document.createElement('i');
+                        editIcon.className = 'fa-regular fa-pen-to-square';
+                        editIcon.style.color = 'var(--accent)';
+                        editButton.appendChild(editIcon);
+                        editCell.appendChild(editButton);
+                        row.appendChild(editCell);
+
+                        // Delete icon cell
+                        const deleteCell = document.createElement('td');
+                        const deleteIcon = document.createElement('i');
+                        deleteIcon.className = 'fa-regular fa-trash-can delete-icon';
+                        deleteIcon.style.color = '#FF7C7C';
+                        deleteIcon.style.cursor = 'pointer';
+                        deleteIcon.dataset.id = data.metadata_key;
+                        deleteIcon.addEventListener('click', () => {
+                        if (confirm(`Delete record with ID ${data.metadata_key}?`)) {
+                            console.log('Delete ID:', data.metadata_key);
+                            // TODO: delete function
+                        }
+                        });
+                        deleteCell.appendChild(deleteIcon);
+                        row.appendChild(deleteCell);
+                            tbody.appendChild(row);
+                        });
+                    })
+                .catch(error => console.error('Error fetching metadata:', error));
+        });
+        </script>
+
         <div id="table-container">
             <div id="table-header">
                 <h3>Metadata Table</h3>
@@ -28,128 +101,12 @@
                     <th>Edit</th>
                     <th>Delete</th>
                 </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
-                <tr>
-                    <td>Data1</td>
-                    <td>Data2</td>
-                    <td>Data3</td>
-                    <td>Data4</td>
-                    <td>Data5</td>
-                    <td>Data6</td>
-                    <td>Data7</td>
-                    <td>Data8</td>
-                    <td><button class="icon-button" onclick="window.location.href='edit.html';"><i class="fa-regular fa-pen-to-square" style="color: var(--accent);"></i></button></td>
-                    <td><i class="fa-regular fa-trash-can" style="color: #FF7C7C;"></i></td>
-                </tr>
+                <tbody id="dataList">
+                    <!-- Data rows will be populated here by JavaScript -->
+                </tbody>
             </table>
 
+            <!--TODO: working pagination--> 
             <div class="pagination-container">
                 <i class="fa-solid fa-arrow-left" style="color: #cccccc;"></i>
                 Page 1 of N
