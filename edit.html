@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Edit Record</title>
+
+        <link rel="stylesheet" href="css/style.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    </head>
+    </head>
+    <body>
+        <button class="icon-button" onclick="window.location.href='data.html';"><i class="fa-solid fa-arrow-left" style="color: var(--primary); margin: 30px;"></i></button>
+        <div class="form-container">
+            <h3>Edit Record</h3>
+            <div class="input-container">
+                <span class="input-header">primary_title</span>
+                <input type="text" class="input-field" id="primary_title" value="primary_title" required>
+            </div>
+            <div class="input-container">
+                <span class="input-header">original_title</span>
+                <input type="text" class="input-field" id="original_title" value="Enter original_title" required>
+            </div>
+            <div class="input-container">
+                <span class="input-header">title_type</span>
+                <select class="input-field" id="title_type" style="width:545px;" required>
+                    <option value="movie">movie</option>
+                    <option value="tvSeries">tvSeries</option>
+                    <option value="short">short</option>
+                    <option value="tvMovie">tvMovie</option>
+                    <option value="tvEpisode">tvEpisode</option>
+                    <option value="video">video</option>
+                    <option value="tvMiniSeries">tvMiniseries</option>
+                    <option value="tvSpecial">tvSpecial</option>
+                    <option value="tvShort">tvShort</option>
+                    <option value="videoGame">videoGame</option>
+                </select>
+            </div>
+            <div class="input-container">
+                <span class="input-header">is_adult</span>
+                <div class="radio-container">
+                    <input type="radio" id="f" name="is_adult">
+                    <label class="radio-header" for="f">f</label>
+                </div>
+                <div class="radio-container">
+                    <input type="radio" id="t" name="is_adult">
+                    <label class="radio-header" for="t">t</label>
+                </div>
+            </div>
+            <div class="input-container">
+                <span class="input-header">runtime_minutes</span>
+                <input type="number" class="input-field" id="runtime_minutes" value="100" required>
+            </div>  
+            <div class="input-container">
+                <span class="input-header">year</span>
+                <input type="number" class="input-field" id="year" value="2025" required>
+            </div>
+            <button class="accent-button" style="margin: 30px;">Edit</button>
+        </div>
+    </body>
+</html>

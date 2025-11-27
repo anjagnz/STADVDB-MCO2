@@ -56,16 +56,30 @@ h3 {
     margin: 20px auto;
 }
 
+.input-header {
+    font-family: 'Roboto', sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--primary);
+    margin-top: 20px;
+    margin-bottom: 10px;
+}
+
 .input-field {
     width: 500px;
     background-color: var(--secondary);
-    color: var(--accent);
+    color: var(--primary);
     border: 2px solid var(--accent);
     border-radius: 8px;
     padding: 20px;
     font-family: 'Roboto', sans-serif;
     font-weight: 400;
-    font-size: 16px;
+    font-size: 12px;
+}
+
+.input-container {
+    display: flex;
+    flex-direction: column;
 }
 
 .accent-button {
@@ -76,7 +90,7 @@ h3 {
     border-radius: 4px;
     font-family: 'Roboto', sans-serif;
     font-weight: 500;
-    font-size: 20px;
+    font-size: 16px;
     cursor: pointer;
 }
 
@@ -162,4 +176,34 @@ td {
     font-family: 'Roboto', sans-serif;
     font-size: 16px;
     color: var(--primary);
+}
+
+.form-container {
+    max-width: 80%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin: 20px auto;
+    background-color: var(--secondary);
+}
+
+.radio-container {
+    width: 545px;
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+}
+
+.radio-header {
+    font-family: 'Roboto', sans-serif;
+    font-weight: 500;
+    font-size: 12px;
+    color: var(--primary);
+}
+
+.icon-button {
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
 }
