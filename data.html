@@ -10,22 +10,34 @@
     </head>
     <body>
         <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const tbody = document.getElementById('dataList');
+        let currentOffset = 0;     // start with row 0
+        let limit = 20;            // load 20 rows at a time
+        let hasMore = true;        // true if there's more data to laod
 
-            fetch('http://localhost:3000/data')
+        function loadBatch() {
+            // if there's no more data
+            if (!hasMore){
+                document.getElementById('load-button').disabled = true;
+                document.getElementById('load-button').textContent = 'No more data';
+                return; // exit
+            }
+            const btn = document.getElementById('load-button');
+            btn.style.display = 'none';
+
+            fetch(`/api/data?offset=${currentOffset}&limit=${limit}`)
                 .then(response => response.json())
                 .then(metadata => {
-                     tbody.innerHTML = '';
+                    const tbody = document.getElementById('dataList');
                     
                     // if no data available
                      if (metadata.length === 0) {
-                        tbody.innerHTML = `<tr><td colspan="10">No data available</td></tr>`;
+                        hasMore = false;
+                        btn.textContent = 'No data available';
+                        btn.disabled = true;
                         return;
                     }
                     
                     // populate the table
-                    // const dataList = document.getElementById('dataList');
                     metadata.forEach(data => {
                         const row = document.createElement('tr');
 
@@ -36,7 +48,7 @@
                         return td;
                         };
 
-                        // Append data cells
+                        // append data cells
                         row.appendChild(createCell(data.metadata_key));
                         row.appendChild(createCell(data.tconst));
                         row.appendChild(createCell(data.primary_title));
@@ -46,7 +58,7 @@
                         row.appendChild(createCell(data.runtime_minutes));
                         row.appendChild(createCell(data.year));
 
-                        // Edit button cell
+                        // edit button cell
                         const editCell = document.createElement('td');
                         const editButton = document.createElement('button');
                         editButton.className = 'icon-button';
@@ -60,25 +72,49 @@
                         editCell.appendChild(editButton);
                         row.appendChild(editCell);
 
-                        // Delete icon cell
-                        const deleteCell = document.createElement('td');
-                        const deleteIcon = document.createElement('i');
-                        deleteIcon.className = 'fa-regular fa-trash-can delete-icon';
-                        deleteIcon.style.color = '#FF7C7C';
-                        deleteIcon.style.cursor = 'pointer';
-                        deleteIcon.dataset.id = data.metadata_key;
-                        deleteIcon.addEventListener('click', () => {
-                        if (confirm(`Delete record with ID ${data.metadata_key}?`)) {
-                            console.log('Delete ID:', data.metadata_key);
-                            // TODO: delete function
+                        tbody.appendChild(row);
+                    });
+                        // add loaded data length to offset, for start of next load
+                        currentOffset += metadata.length;
+
+                        // if rows to load < limit
+                        if (metadata.length < limit) {
+                            hasMore = false;
+                            if (btn) {
+                                btn.textContent = 'No more data';
+                                btn.disabled = true;
+                            }
                         }
-                        });
-                        deleteCell.appendChild(deleteIcon);
-                        row.appendChild(deleteCell);
-                            tbody.appendChild(row);
-                        });
-                    })
-                .catch(error => console.error('Error fetching metadata:', error));
+
+                        // "load more" button
+                        if (btn) {
+                            btn.style.display = 'inline-block';
+                        }
+
+                        // total rows loaded
+                        const paginationContainer = document.querySelector('.pagination-container');
+                        if (paginationContainer) {
+                            paginationContainer.textContent = `Total rows loaded: ${currentOffset}`;
+                        }
+            }).catch(error => {
+                console.error('Error loading metadata:', error);
+                alert('Failed to load more data');
+                if (btn) {
+                    btn.style.display = 'inline-block';
+                }
+            });
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            loadBatch(); // Load first batch
+
+            const loadButton = document.getElementById('load-button');
+            if (loadButton) {
+                loadButton.addEventListener('click', () => {
+                    loadBatch();
+                });
+            } else {
+                console.error('Load button #load-button not found');
+            }
         });
         </script>
 
@@ -99,18 +135,16 @@
                     <th>runtime_minutes</th>
                     <th>year</th>
                     <th>Edit</th>
-                    <th>Delete</th>
                 </tr>
                 <tbody id="dataList">
-                    <!-- Data rows will be populated here by JavaScript -->
+                    <!-- data rows will be populated here -->
                 </tbody>
             </table>
 
-            <!--TODO: working pagination--> 
+            <button class="accent-button" id="load-button" style="margin: 30px;">Load More</button>
+
             <div class="pagination-container">
-                <i class="fa-solid fa-arrow-left" style="color: #cccccc;"></i>
-                Page 1 of N
-                <i class="fa-solid fa-arrow-right" style="color: var(--accent);"></i>
+                <!-- total rows loaded -->
             </div>
         </div>
     </body>

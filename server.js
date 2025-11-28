@@ -6,11 +6,11 @@ const cors = require('cors');
 const app = express();
 const port = 3000;
 
-app.use(express.json()); // Enable parsing of JSON request bodies
+app.use(express.json());
 app.use(cors())
-app.use(express.static('.')); // Serves static files (HTML, CSS, JS) from current directory
 
-// Database connection configuration
+
+// database connection
 const db = mysql.createConnection({
     host: 'ccscloud.dlsu.edu.ph',
     user: 'remoteuser',
@@ -24,28 +24,44 @@ db.connect(err => {
     console.log('Connected to MySQL database!');
 });
 
-// API endpoint to get users
+// landing page
 app.get('/', (req, res) => {
-    //res.redirect('/data');
-    res.sendFile(__dirname + '/data.html');
+    res.sendFile(__dirname + '/index.html');
 });
 
-// load data into page
+// initally load data into page
 app.get('/data', (req, res) => {
-    db.query('SELECT * FROM metadata LIMIT 10;', (err, results) => {
+    const filePath = path.join(__dirname, 'data.html');
+    res.sendFile(filePath, (err) => {
         if (err) {
-            console.error('Database query error:', err);
-            // Ensure we only send one response
-            if (!res.headersSent) {
-                res.status(500).json({ error: 'Failed to fetch metadata' });
-            }
-            return; // Crucial: exit early
+            console.error('Failed to send data.html:', err);
+            res.status(404).send('Data page not found');
         }
+    });
+});
 
-        // Only send success response if headers not already sent
-        if (!res.headersSent) {
-            res.json(results);
+// this is for "LOAD MORE"
+app.get('/api/data', (req, res) => {
+    let offset = parseInt(req.query.offset); // start loading from row 0
+    let limit = parseInt(req.query.limit);   // amount of data to load at a time
+
+    if (isNaN(offset) || offset < 0) offset = 0;
+    if (isNaN(limit) || limit < 1 || limit > 100) limit = 20; // cap max limit
+
+    console.log(`Fetching data: OFFSET=${offset}, LIMIT=${limit}`);
+
+    const query = 
+        `SELECT * FROM metadata
+        ORDER BY metadata_key
+        LIMIT ? OFFSET ?`;
+
+    db.query(query, [limit, offset], (err, results) => {
+        if (err) {
+            console.error('Database error:', err);
+            return res.status(500).json({ error: 'Failed to fetch metadata' }); // Crucial: exit early
         }
+        console.log(`Returned ${results.length} rows`);
+        res.json(results);
     });
 });
 
@@ -109,6 +125,8 @@ app.post('/api/update', (req, res) => {
         }
     );
 });
+
+app.use(express.static('.')); // serves static files (HTML, CSS, JS) from current directory
 
 app.listen(port, () => {
     console.log(`Server listening at http://localhost:${port}`);
