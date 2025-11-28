@@ -101,8 +101,6 @@
 
                 // saving the changes
                 function saveRecord() {
-                    console.log("✅ Save button clicked!");
-
                     const getVal = (id) => {
                         const el = document.getElementById(id);
                         return el ? el.value : '';
@@ -128,13 +126,13 @@
                     .then(response => response.json())
                     
                     .then(() => {
-                        alert('✅ Record updated successfully!');
+                        alert('Record updated successfully!');
                         // back to data list
                         window.location.href = 'data.html';
                     })
                     .catch(error => {
                         console.error('Save error:', error);
-                        alert('❌ Failed to save: ' + error.message);
+                        alert('Failed to save: ' + error.message);
                     });
                 }
 

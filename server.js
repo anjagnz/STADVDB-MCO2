@@ -66,7 +66,7 @@ app.get('/api/edit', (req, res) => {
 
 // POST FOR EDIT
 app.post('/api/update', (req, res) => {
-    console.log("🔄 Received update request:", req.body);
+    console.log("Received update request:", req.body);
 
     const {
         metadata_key,
