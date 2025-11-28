@@ -1,0 +1,26 @@
+{
+  "name": "stadvdb-mco2",
+  "version": "1.0.0",
+  "description": "required packages:\r -  express\r -  mysql2\r -  cors",
+  "homepage": "https://github.com/anjagnz/STADVDB-MCO2#readme",
+  "bugs": {
+    "url": "https://github.com/anjagnz/STADVDB-MCO2/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anjagnz/STADVDB-MCO2.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "mysql2": "^3.15.3"
+  }
+}
