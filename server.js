@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
@@ -50,15 +49,37 @@ app.get('/api/data', (req, res) => {
 
     console.log(`Fetching data: OFFSET=${offset}, LIMIT=${limit}`);
 
-    const query = 
-        `SELECT * FROM metadata
-        ORDER BY metadata_key
-        LIMIT ? OFFSET ?`;
+    const search = req.query.search;
+    const hasSearch = search && search.trim().length > 0;
 
-    db.query(query, [limit, offset], (err, results) => {
+    let query, params;
+
+    if (hasSearch) {
+        // with search
+        query = `
+            SELECT * FROM metadata
+            WHERE primary_title LIKE ?
+               OR original_title LIKE ?
+            ORDER BY metadata_key
+            LIMIT ? OFFSET ?
+        `;
+        // for sql to allow partial matching
+        const term = `%${search.trim()}%`;
+        params = [term, term, limit, offset];
+    } else {
+        // without search (full table)
+        query = `
+            SELECT * FROM metadata
+            ORDER BY metadata_key
+            LIMIT ? OFFSET ?
+        `;
+        params = [limit, offset];
+    }
+
+    db.query(query, params, (err, results) => {
         if (err) {
             console.error('Database error:', err);
-            return res.status(500).json({ error: 'Failed to fetch metadata' }); // Crucial: exit early
+            return res.status(500).json({ error: 'Failed to fetch metadata' });
         }
         console.log(`Returned ${results.length} rows`);
         res.json(results);
@@ -73,10 +94,10 @@ app.get('/api/edit', (req, res) => {
     db.query(query,[metadata_key], (err, results) => {
         if (err) {
             console.error('Database query error:', err);
-            // Ensure we only send one response
-            return res.status(500).json({ error: 'Failed to fetch metadata' }); // Crucial: exit early
+            // send one response
+            return res.status(500).json({ error: 'Failed to fetch metadata' });
         }
-        res.json(results[0]); // Send single object
+        res.json(results[0]); // send single object
     });
 });
 

@@ -13,6 +13,7 @@
         let currentOffset = 0;     // start with row 0
         let limit = 20;            // load 20 rows at a time
         let hasMore = true;        // true if there's more data to laod
+        let currentSearch = '';    // initally set search blank
 
         function loadBatch() {
             // if there's no more data
@@ -24,7 +25,15 @@
             const btn = document.getElementById('load-button');
             btn.style.display = 'none';
 
-            fetch(`/api/data?offset=${currentOffset}&limit=${limit}`)
+            // base url (no searches)
+            let url = `/api/data?offset=${currentOffset}&limit=${limit}`;
+            
+            // search if there's value
+            if (currentSearch) {
+                url += `&search=${encodeURIComponent(currentSearch)}`;
+            }
+
+            fetch(url)
                 .then(response => response.json())
                 .then(metadata => {
                     const tbody = document.getElementById('dataList');
@@ -104,6 +113,7 @@
                 }
             });
         }
+
         document.addEventListener('DOMContentLoaded', () => {
             loadBatch(); // Load first batch
 
@@ -115,6 +125,38 @@
             } else {
                 console.error('Load button #load-button not found');
             }
+
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    currentSearch = e.target.value.trim();
+                    currentOffset = 0;
+                    hasMore = true;
+                    document.getElementById('dataList').innerHTML = '';
+                    loadBatch();
+                });
+            } else {
+                console.warn('Search input #searchInput not found');
+            }
+        });
+
+        searchInput.addEventListener('input', (e) => {
+            // explicitly set to empty string if blank
+            const rawValue = e.target.value || '';
+            currentSearch = rawValue.trim(); // "" if empty/whitespace
+
+            currentOffset = 0;
+            hasMore = true;
+            
+            // fixed button
+            const btn = document.getElementById('load-button');
+            if (btn) {
+                btn.textContent = 'Load More';
+                btn.disabled = false;
+                btn.style.display = 'inline-block';
+            }
+            document.getElementById('dataList').innerHTML = '';
+            loadBatch();
         });
         </script>
 
@@ -123,6 +165,10 @@
                 <h3>Metadata Table</h3>
                 <button class="green-button" onclick="window.location.href='create.html';">Create</button>
                 <button class="red-button" onclick="window.location.href='index.html';">Disconnect</button>
+            </div>
+            <!-- search bar -->
+            <div style ="margin-bottom: 20px;">
+                <input type="text" class = "input-field" id="searchInput" placeholder="Search titles...">
             </div>
             <table>
                 <tr>
