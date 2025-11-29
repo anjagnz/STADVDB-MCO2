@@ -21,7 +21,7 @@ const OldSlave = {
     host: 'ccscloud.dlsu.edu.ph', 
     user: 'remoteuser', 
     password: 'DenzelLuisAnjaNaysa2025!', 
-    database: 'MCO2_Distributed_Database', 
+    database: 'MCO2_LowerShard', 
     port: 60780
 }
 
@@ -29,7 +29,7 @@ const NewSlave = {
     host: 'ccscloud.dlsu.edu.ph', 
     user: 'remoteuser', 
     password: 'DenzelLuisAnjaNaysa2025!', 
-    database: 'MCO2_Distributed_Database', 
+    database: 'MCO2_UpperShard', 
     port: 60779  
 }
 
