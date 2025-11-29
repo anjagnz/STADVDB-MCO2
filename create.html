@@ -14,6 +14,10 @@
         <div class="form-container">
             <h3>Create Record</h3>
             <div class="input-container">
+                <span class="input-header">tconst</span>
+                <input type="text" class="input-field" id="tconst" placeholder="Enter tconst" required>
+            </div>
+            <div class="input-container">
                 <span class="input-header">primary_title</span>
                 <input type="text" class="input-field" id="primary_title" placeholder="Enter primary_title" required>
             </div>
@@ -57,5 +61,51 @@
             </div>
             <button class="accent-button" style="margin: 30px;">Create</button>
         </div>
+
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                const createButton = document.querySelector('.accent-button');
+
+                createButton.addEventListener('click', () => {
+                    const tconst = document.getElementById('tconst').value;
+                    const primary_title = document.getElementById('primary_title').value;
+                    const original_title = document.getElementById('original_title').value;
+                    const title_type = document.getElementById('title_type').value;
+                    const is_adult = document.getElementById('t').checked ? 't' : 'f';
+                    const runtime_minutes = parseInt(document.getElementById('runtime_minutes').value);
+                    const year = parseInt(document.getElementById('year').value);
+
+                    const newRecord = {
+                        tconst,
+                        primary_title,
+                        original_title,
+                        title_type,
+                        is_adult,
+                        runtime_minutes,
+                        year
+                    };
+
+                    fetch('/api/create', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(newRecord)
+                    })
+                    .then(response => {
+                        if (response.ok) {
+                            alert('Record has been created successfully!');
+                            window.location.href = 'data.html';
+                        } else {
+                            alert('Failed to create record.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('An error occurred while creating the record.');
+                    });
+                });
+            });
+        </script>
     </body>
 </html>

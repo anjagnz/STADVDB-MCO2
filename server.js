@@ -86,6 +86,23 @@ app.get('/api/data', (req, res) => {
     });
 });
 
+// create
+app.post('/api/create', (req, res) => {
+    const {tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year} = req.body;
+
+    const query = 'INSERT INTO metadata (tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year) VALUES (?, ?, ?, ?, ?, ?, ?)';
+
+    const values = [tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year];
+
+    db.query(query, values, (err, results) => {
+        if (err) {
+            console.error('Database insert error:', err);
+            return res.status(500).json({ error: 'Failed to create metadata' });
+        }
+        res.json({ success: true, message: 'Record created', id: results.insertId });
+    });
+});
+
 // edit page
 app.get('/api/edit', (req, res) => {
     const metadata_key = req.query.id;
