@@ -1,5 +1,5 @@
 const express = require('express');
-const mysql = require('mysql2');
+const mysql = require('mysql2/promise');
 const cors = require('cors');
 
 const app = express();
@@ -8,20 +8,41 @@ const port = 3000;
 app.use(express.json());
 app.use(cors())
 
-
-// database connection
-const db = mysql.createConnection({
-    host: 'ccscloud.dlsu.edu.ph',
-    user: 'remoteuser',
-    password: 'DenzelLuisAnjaNaysa2025!',
-    database: 'MCO2_Distributed_Database',
+// initialize connection to all three nodes
+const MasterNode = {
+    host: 'ccscloud.dlsu.edu.ph', 
+    user: 'remoteuser', 
+    password: 'DenzelLuisAnjaNaysa2025!', 
+    database: 'MCO2_Distributed_Database', 
     port: 60778
-});
+}
 
-db.connect(err => {
-    if (err) throw err;
-    console.log('Connected to MySQL database!');
-});
+const OldSlave = {
+    host: 'ccscloud.dlsu.edu.ph', 
+    user: 'remoteuser', 
+    password: 'DenzelLuisAnjaNaysa2025!', 
+    database: 'MCO2_Distributed_Database', 
+    port: 60780
+}
+
+const NewSlave = {
+    host: 'ccscloud.dlsu.edu.ph', 
+    user: 'remoteuser', 
+    password: 'DenzelLuisAnjaNaysa2025!', 
+    database: 'MCO2_Distributed_Database', 
+    port: 60779  
+}
+
+const currentNode = "Master"; // can be NewSlave or OldSlave too
+let localDB;
+
+if (currentNode === "Master") {
+    localDB = mysql.createPool(MasterNode);
+} else if (currentNode === "OldSlave") {
+    localDB = mysql.createPool(OldSlave);
+} else {
+    localDB = mysql.createPool(NewSlave);
+}
 
 // landing page
 app.get('/', (req, res) => {
@@ -31,16 +52,17 @@ app.get('/', (req, res) => {
 // initally load data into page
 app.get('/data', (req, res) => {
     const filePath = path.join(__dirname, 'data.html');
-    res.sendFile(filePath, (err) => {
-        if (err) {
-            console.error('Failed to send data.html:', err);
-            res.status(404).send('Data page not found');
-        }
-    });
+
+    try {
+        res.sendFile(filePath);
+    } catch (err) {
+        console.error('Failed to send data.html:', err);
+        res.status(404).send('Data page not found');
+    }
 });
 
 // this is for "LOAD MORE"
-app.get('/api/data', (req, res) => {
+app.get('/api/data', async (req, res) => {
     let offset = parseInt(req.query.offset); // start loading from row 0
     let limit = parseInt(req.query.limit);   // amount of data to load at a time
 
@@ -76,50 +98,51 @@ app.get('/api/data', (req, res) => {
         params = [limit, offset];
     }
 
-    db.query(query, params, (err, results) => {
-        if (err) {
-            console.error('Database error:', err);
-            return res.status(500).json({ error: 'Failed to fetch metadata' });
-        }
+    try {
+        const [results] = await localDB.query(query, params);
         console.log(`Returned ${results.length} rows`);
         res.json(results);
-    });
+    } catch (err) {
+        console.error('Database error:', err);
+        return res.status(500).json({ error: 'Failed to fetch metadata' });
+    }
 });
 
 // create
-app.post('/api/create', (req, res) => {
+app.post('/api/create', async (req, res) => {
     const {tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year} = req.body;
 
     const query = 'INSERT INTO metadata (tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year) VALUES (?, ?, ?, ?, ?, ?, ?)';
 
     const values = [tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year];
 
-    db.query(query, values, (err, results) => {
-        if (err) {
-            console.error('Database insert error:', err);
-            return res.status(500).json({ error: 'Failed to create metadata' });
-        }
+    try {
+        const [results] = await localDB.query(query, values);
         res.json({ success: true, message: 'Record created', id: results.insertId });
-    });
+    } catch (err) {
+        console.error('Database insert error:', err);
+        return res.status(500).json({ error: 'Failed to create metadata' });
+    }
 });
 
 // edit page
-app.get('/api/edit', (req, res) => {
+app.get('/api/edit', async (req, res) => {
     const metadata_key = req.query.id;
 
     const query = 'SELECT * FROM metadata WHERE metadata_key = ?';
-    db.query(query,[metadata_key], (err, results) => {
-        if (err) {
-            console.error('Database query error:', err);
-            // send one response
-            return res.status(500).json({ error: 'Failed to fetch metadata' });
-        }
+
+    try {
+        const [results] = await localDB.query(query, [metadata_key]);
         res.json(results[0]); // send single object
-    });
+    } catch (err) {
+        console.error('Database query error:', err);
+        // send one response
+        return res.status(500).json({ error: 'Failed to fetch metadata' });
+    }
 });
 
 // POST FOR EDIT
-app.post('/api/update', (req, res) => {
+app.post('/api/update', async (req, res) => {
     console.log("Received update request:", req.body);
 
     const {
@@ -148,20 +171,17 @@ app.post('/api/update', (req, res) => {
         WHERE metadata_key = ?
     `;
 
-    db.query(
-        query,
-        [primary_title, original_title, title_type, is_adult, runtime_minutes, year, metadata_key],
-        (err, result) => {
-            if (err) {
-                console.error('Update DB error:', err);
-                return res.status(500).json({ error: 'Database update failed' });
-            }
-            if (result.affectedRows === 0) {
-                return res.status(404).json({ error: 'No record found to update' });
-            }
-            res.json({ success: true, message: 'Record updated' });
+    const params = [primary_title, original_title, title_type, is_adult, runtime_minutes, year, metadata_key];
+
+    try {
+        const [results] = await localDB.query(query, params);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ error: 'No record found to update' });
         }
-    );
+    } catch (err) {
+        console.error('Update DB error:', err);
+        return res.status(500).json({ error: 'Database update failed' });
+    }
 });
 
 app.use(express.static('.')); // serves static files (HTML, CSS, JS) from current directory
