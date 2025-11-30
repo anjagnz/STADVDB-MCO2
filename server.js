@@ -1,6 +1,7 @@
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 const port = 3000;
@@ -14,7 +15,9 @@ const MasterNode = {
     user: 'remoteuser', 
     password: 'DenzelLuisAnjaNaysa2025!', 
     database: 'MCO2_Distributed_Database', 
-    port: 60778
+    port: 60778,
+    enableKeepAlive: true, 
+    keepAliveInitialDelay: 0 
 }
 
 const OldSlave = {
@@ -22,7 +25,9 @@ const OldSlave = {
     user: 'remoteuser', 
     password: 'DenzelLuisAnjaNaysa2025!', 
     database: 'MCO2_LowerShard', 
-    port: 60780
+    port: 60780,
+    enableKeepAlive: true, 
+    keepAliveInitialDelay: 0 
 }
 
 const NewSlave = {
@@ -30,19 +35,26 @@ const NewSlave = {
     user: 'remoteuser', 
     password: 'DenzelLuisAnjaNaysa2025!', 
     database: 'MCO2_UpperShard', 
-    port: 60779  
+    port: 60779  ,
+    enableKeepAlive: true, 
+    keepAliveInitialDelay: 0 
 }
 
-const currentNode = "Master"; // can be NewSlave or OldSlave too
-let localDB;
+const currentNode = "OldSlave"; // can be NewSlave or OldSlave too
 
-if (currentNode === "Master") {
-    localDB = mysql.createPool(MasterNode);
-} else if (currentNode === "OldSlave") {
-    localDB = mysql.createPool(OldSlave);
-} else {
-    localDB = mysql.createPool(NewSlave);
+// because Denzel named the tables differently in each node
+const tableSuffix = {
+    Master : "",
+    OldSlave : "_lower_half",
+    NewSlave : "_upper_half"
 }
+
+// connect to all nodes to be able to propagate changes from primary node
+const pools = {
+    Master: mysql.createPool(MasterNode),
+    OldSlave: mysql.createPool(OldSlave),
+    NewSlave: mysql.createPool(NewSlave)
+};
 
 // landing page
 app.get('/', (req, res) => {
@@ -75,36 +87,62 @@ app.get('/api/data', async (req, res) => {
     const hasSearch = search && search.trim().length > 0;
 
     let query, params;
-
-    if (hasSearch) {
-        // with search
-        query = `
-            SELECT * FROM metadata
-            WHERE primary_title LIKE ?
-               OR original_title LIKE ?
-            ORDER BY metadata_key
-            LIMIT ? OFFSET ?
-        `;
-        // for sql to allow partial matching
-        const term = `%${search.trim()}%`;
-        params = [term, term, limit, offset];
-    } else {
-        // without search (full table)
-        query = `
-            SELECT * FROM metadata
-            ORDER BY metadata_key
-            LIMIT ? OFFSET ?
-        `;
-        params = [limit, offset];
+    
+    const initializeQueryParams = (node) => {
+        if (hasSearch) {
+            const term = `%${search.trim()}%`;
+            return [
+                `SELECT * FROM metadata${tableSuffix[node]}
+                 WHERE primary_title LIKE ?
+                 OR original_title LIKE ?
+                 ORDER BY metadata_key
+                 LIMIT ? OFFSET ?`,
+                [term, term, limit, offset]
+            ];
+        } else {
+            return [
+                `SELECT * FROM metadata${tableSuffix[node]}
+                 ORDER BY metadata_key
+                 LIMIT ? OFFSET ?`,
+                [limit, offset]
+            ];
+        }
     }
 
     try {
-        const [results] = await localDB.query(query, params);
-        console.log(`Returned ${results.length} rows`);
+        [query, params] = initializeQueryParams('Master');
+        const [results] = await pools['Master'].query(query, params);
+        console.log(`Returned ${results.length} rows from Master`);
         res.json(results);
-    } catch (err) {
-        console.error('Database error:', err);
-        return res.status(500).json({ error: 'Failed to fetch metadata' });
+    } catch (masterErr) { // master is down
+        console.error('Database error:', masterErr);
+        console.log('Master unreachable. Reconstructing complete DB from OldSlave and NewSlave');
+
+        try {
+            // run the same query on BOTH slaves
+            [query, params] = initializeQueryParams('OldSlave');
+            const slave1Promise = pools['OldSlave'].query(query, params).catch(e => [[], []]);
+
+            [query, params] = initializeQueryParams('NewSlave');
+            const slave2Promise = pools['NewSlave'].query(query, params).catch(e => [[], []]);
+
+            const [[res1], [res2]] = await Promise.all([slave1Promise, slave2Promise]);
+
+            let combinedResults = [...res1, ...res2]; // put results from both slaves together
+
+            // sort combinedResults by the metadata_key
+            combinedResults.sort((a, b) => a.metadata_key - b.metadata_key);
+
+            // re-apply limit on number of rows because it may have been exceeded when combining queries of two slaves
+            const finalResult = combinedResults.slice(0, limit);
+
+            res.json(finalResult);
+        } catch (clusterErr) {
+            console.error("Cluster failure:", clusterErr);
+            res.status(500).json({ error: 'System unavailable.' });
+        }
+
+        //return res.status(500).json({ error: 'Failed to fetch metadata' });
     }
 });
 
@@ -112,16 +150,79 @@ app.get('/api/data', async (req, res) => {
 app.post('/api/create', async (req, res) => {
     const {tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year} = req.body;
 
-    const query = 'INSERT INTO metadata (tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year) VALUES (?, ?, ?, ?, ?, ?, ?)';
-
     const values = [tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year];
 
-    try {
-        const [results] = await localDB.query(query, values);
-        res.json({ success: true, message: 'Record created', id: results.insertId });
-    } catch (err) {
-        console.error('Database insert error:', err);
-        return res.status(500).json({ error: 'Failed to create metadata' });
+    const yearInt = parseInt(year); // needed to determine correct slave for replication
+
+    const targetSlave = (yearInt < 2012) ? 'OldSlave' : 'NewSlave';
+
+    // try master first to get the metadata_key, then the target slave
+    const targetNodes = ['Master', targetSlave];
+
+    let successCount = 0;
+    let generatedId = null;
+
+    for (const target of targetNodes) {
+        try {
+            console.log(`Creating record in ${target}...`);
+            let query, currentValues;
+
+            if (target === 'Master') {
+                query = `INSERT INTO metadata${tableSuffix[target]} (tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+                
+                const [result] = await pools['Master'].query(query, values);
+
+                // get the metadata_key generated by master
+                generatedId = result.insertId;
+                console.log(`Master generated ID: ${generatedId}`);
+            } else {
+                if (!generatedId) {
+                    // the master failed, so query both slaves as a basis to create a unique metadata_key 
+                    console.warn("Master is down! Generating ID for metdata_key from Slaves...");
+                    
+                    // get the maximum metadata_key and add 1 to generate a new metadata_key if master node is down
+                    try {
+                        const [oldRes] = await pools['OldSlave'].query(`SELECT MAX(metadata_key) as maxId FROM metadata${tableSuffix['OldSlave']}`);
+                        const [newRes] = await pools['NewSlave'].query(`SELECT MAX(metadata_key) as maxId FROM metadata${tableSuffix['NewSlave']}`);
+                        
+                        const maxOld = oldRes[0].maxId;
+                        const maxNew = newRes[0].maxId;
+                        
+                        // create a new ID that is higher than both all metadata_keys in OldSlave and NewSlave to prevent duplicate metadata_key
+                        generatedId = Math.max(maxOld, maxNew) + 1;
+                        console.log(`Generated Fallback ID: ${generatedId}`);
+                        
+                    } catch (idErr) {
+                        console.error("CRITICAL: One slave is also down! Could not query Slaves for Max ID.", idErr);
+                        throw new Error("ID Generation failed. Cluster unavailable.");
+                    }
+                }
+
+                query = `INSERT INTO metadata${tableSuffix[target]} 
+                         (metadata_key, tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`; // Explicit ID insert
+                
+                // add the generated id from the master's metadata_key (or from taking the MAX(metadata_key) of both slaves)
+                currentValues = [generatedId, ...values];
+
+                await pools[target].query(query, currentValues);
+            }
+
+            successCount++;
+
+        } catch (err) {
+            console.error(`Database insert error on ${target}:`, err);
+            /* 
+                TO DO: Logs for recovery in case an insert fails during current iteration
+            */
+        }
+    }
+    
+    // as long as one node has successfully INSERTed the new row, we assume there is a log that means the INSERT can be replicated in the other node
+    if (successCount > 0) {
+        res.json({ success: true, message: `Records created in ${targetNodes.join(', ')}`});
+    } else {
+        return res.status(500).json({ error: `Failed to create metadata in ${targetNodes.join(', ')}` });
     }
 });
 
@@ -129,15 +230,53 @@ app.post('/api/create', async (req, res) => {
 app.get('/api/edit', async (req, res) => {
     const metadata_key = req.query.id;
 
-    const query = 'SELECT * FROM metadata WHERE metadata_key = ?';
-
+    let query;
     try {
-        const [results] = await localDB.query(query, [metadata_key]);
-        res.json(results[0]); // send single object
-    } catch (err) {
-        console.error('Database query error:', err);
+        // current node read should never fail
+        query = `SELECT * FROM metadata${tableSuffix[currentNode]} WHERE metadata_key = ?`;
+
+        const [localResults] = await pools[currentNode].query(query, [metadata_key])
+        if (localResults.length > 0) {
+            return res.json(localResults[0]);
+        } else if (currentNode === 'Master') {
+            // Master is online but row is not in master
+            return res.status(404).json({ error: 'Record not found in Master' });
+        }
+
+        try { // slave did not contain row, so check master first because it should contain all rows
+            query = `SELECT * FROM metadata${tableSuffix['Master']} WHERE metadata_key = ?`;
+
+            const [masterResults] = await pools['Master'].query(query, [metadata_key])
+            if (masterResults.length > 0) {
+                return res.json(masterResults[0]);
+            } else {
+                // Master is online but row is not in master
+                return res.status(404).json({ error: 'Record not found in Master' });
+            }
+
+        } catch (masterErr) { // master might be down, so catch error
+            console.error("Master unreachable. Attempting to read other slave: ", masterErr.message);
+
+            try {
+                const otherSlave = (currentNode === 'OldSlave') ? 'NewSlave' : 'OldSlave';
+                query = `SELECT * FROM metadata${tableSuffix[otherSlave]} WHERE metadata_key = ?`;
+                
+                const [otherResults] = await pools[otherSlave].query(query, [metadata_key]);
+                if (otherResults.length > 0) {
+                    return res.json(otherResults[0]);
+                }
+
+            } catch (otherErr) {
+                console.error("Other Slave also unreachable.");
+            }     
+        }
+
+        return res.status(404).json({ error: 'Record not found in cluster' });
+
+    } catch (err) { // current slave node does not contain row and all other nodes are down, thus row can not be read
+        console.error('Critical database query error:', err);
         // send one response
-        return res.status(500).json({ error: 'Failed to fetch metadata' });
+        return res.status(500).json({ error: 'System unavailable' });
     }
 });
 
@@ -152,7 +291,9 @@ app.post('/api/update', async (req, res) => {
         title_type,
         is_adult,
         runtime_minutes,
-        year
+        year,
+        tconst,
+        oldYear
     } = req.body;
 
     // Validate
@@ -160,27 +301,82 @@ app.post('/api/update', async (req, res) => {
         return res.status(400).json({ error: 'metadata_key is required' });
     }
 
-    const query = `
-        UPDATE metadata SET
-            primary_title = ?,
-            original_title = ?,
-            title_type = ?,
-            is_adult = ?,
-            runtime_minutes = ?,
-            year = ?
-        WHERE metadata_key = ?
-    `;
+    const getShard = (y) => (parseInt(y) < 2012) ? 'OldSlave' : 'NewSlave';
+    
+    // determine currentYear and newYear provided by the user
+    const currentYear = parseInt(oldYear);
+    const newYear = parseInt(year);
 
-    const params = [primary_title, original_title, title_type, is_adult, runtime_minutes, year, metadata_key];
+    const sourceSlave = getShard(currentYear); // where row is currently stored
+    const destSlave = getShard(newYear);  // where new values of the row should be reflected   
+    
+    const isMigration = (sourceSlave !== destSlave); // if true, the row is moving from one slave to another
 
-    try {
-        const [results] = await localDB.query(query, params);
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'No record found to update' });
+    //always update Master, and always write to the Destination Slave
+    const targetNodes = ['Master', destSlave]; 
+
+    // if row is moving from one slave to another, delete from the old slave before the update/insert loop
+    if (isMigration) {
+        console.log(`Migration detected: Moving from ${sourceSlave} to ${destSlave}`);
+        try {
+            console.log(`Deleting from old node ${sourceSlave}...`);
+            const delQuery = `DELETE FROM metadata${tableSuffix[sourceSlave]} WHERE metadata_key = ?`;
+            await pools[sourceSlave].query(delQuery, [metadata_key]);
+        } catch (err) {
+            console.error(`Deletion failed on ${sourceSlave}:`, err);
+            // Log for recovery
         }
-    } catch (err) {
-        console.error('Update DB error:', err);
-        return res.status(500).json({ error: 'Database update failed' });
+    }
+
+    let successCount = 0;
+
+    // params for simple update
+    const updateParams = [primary_title, original_title, title_type, is_adult, runtime_minutes, year, metadata_key];
+
+    // params in case a row needs to be moved from one slave to another
+    const insertParams = [metadata_key, tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year];
+
+    for (const target of targetNodes) {
+        try {
+            let query;
+            let params;
+
+            if (isMigration && target !== 'Master') {
+                // current target node is the slave where the row is migrating to, so perform INSERT
+                console.log(`Migrating (Inserting) into ${target}...`);
+                query = `INSERT INTO metadata${tableSuffix[target]} 
+                        (metadata_key, tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+                params = insertParams;
+            } else { 
+                // not the slave the row is migrating to, so UPDATE as normal
+                console.log(`Updating ${target}...`);
+                query = `UPDATE metadata${tableSuffix[target]} 
+                            SET primary_title = ?, 
+                            original_title = ?, 
+                            title_type = ?, 
+                            is_adult = ?, 
+                            runtime_minutes = ?, 
+                            year = ? 
+                            WHERE metadata_key = ?`;
+                params = updateParams;
+            }
+            await pools[target].query(query, params);
+            successCount++;
+
+        } catch (err) {
+            console.error(`Update DB error on ${target}:`, err);
+            /* 
+                TO DO: Logs for recovery in case an update fails during current iteration
+            */
+        }
+    }
+
+    // as long as one node has successfully UPDATEd the new row, we assume there is a log that means the UPDATE can be replicated in the other node
+    if (successCount > 0) {
+        res.json({ success: true, message: `Records updated in ${targetNodes.join(', ')}`});
+    } else {
+        return res.status(500).json({ error: `Failed to update records in ${targetNodes.join(', ')}` });
     }
 });
 

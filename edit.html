@@ -73,6 +73,9 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 const id = urlParams.get('id'); 
 
+                let originalYear = null;
+                let tconst = null;
+
                 fetch(`/api/edit?id=${encodeURIComponent(id)}`)
                     .then(response => {
                         if (!response.ok) throw new Error('Failed to load record');
@@ -87,6 +90,9 @@
                                 console.warn(`Element with id="${id}" not found`);
                             }
                         };
+
+                        originalYear = metadata.year;
+                        tconst = metadata.tconst; // needed in case that the updated row will move from one slave to another
 
                         // loading current values
                         setVal('primary_title', metadata.primary_title);
@@ -115,6 +121,8 @@
                         is_adult: getIsAdultValue(),
                         runtime_minutes: document.getElementById('runtime_minutes').value,
                         year: document.getElementById('year').value,
+                        tconst: tconst,
+                        oldYear: originalYear
                     };
 
                     fetch('/api/update', {
