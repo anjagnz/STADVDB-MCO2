@@ -158,16 +158,48 @@
             document.getElementById('dataList').innerHTML = '';
             loadBatch();
         });
+
+        // dropdown menu for reports
+        function myFunction() {
+            document.getElementById("myDropdown").classList.toggle("show");
+            }
+
+            // close the dropdown if the user clicks outside of it
+            window.onclick = function(event) {
+            if (!event.target.matches('.dropbtn')) {
+                var dropdowns = document.getElementsByClassName("dropdown-content");
+                var i;
+                for (i = 0; i < dropdowns.length; i++) {
+                var openDropdown = dropdowns[i];
+                if (openDropdown.classList.contains('show')) {
+                    openDropdown.classList.remove('show');
+                }
+                }
+            }
+        }
         </script>
 
         <div id="table-container">
             <div id="table-header">
                 <h3>Metadata Table</h3>
+                
+            </div>
+            <!-- feature bar -->
+            <div class = "featureBar">
                 <button class="green-button" onclick="window.location.href='create.html';">Create</button>
                 <button class="red-button" onclick="window.location.href='index.html';">Disconnect</button>
+                <!-- reports dropdown -->
+                <div class="dropdown">
+                    <button onclick="myFunction()" class="dropbtn">Select Report</button>
+                    <div id="myDropdown" class="dropdown-content">
+                        <a href="/countreport">Count per Year</a>
+                        <a href="/averagereport">Average Runtime per Year</a>
+                        <a href="/ratioreport">Adult Media Ratio per Year</a>
+                    </div>
+                </div>
             </div>
             <!-- search bar -->
-            <div style ="margin-bottom: 20px;">
+            <div style = "margin: 0px 20px 30px 20px;">
                 <input type="text" class = "input-field" id="searchInput" placeholder="Search titles...">
             </div>
             <table>

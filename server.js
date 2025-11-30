@@ -1,6 +1,7 @@
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 const port = 3000;
@@ -181,6 +182,163 @@ app.post('/api/update', async (req, res) => {
     } catch (err) {
         console.error('Update DB error:', err);
         return res.status(500).json({ error: 'Database update failed' });
+    }
+});
+
+app.get('/countreport', (req, res) => {
+    const filePath = path.join(__dirname, 'countreport.html');
+
+    try {
+        res.sendFile(filePath);
+    } catch (err) {
+        console.error('Failed to send data.html:', err);
+        res.status(404).send('Report not found');
+    }
+});
+
+app.get('/api/countreport', async (req, res) => {
+    const sort = req.query.sort || 'yearasc';
+    
+    // order by
+    let orderBy = 'year ASC'; // default
+    
+    switch (sort) {
+        case 'yearasc':
+            orderBy = 'year ASC';
+            break;
+        case 'yeardesc':
+            orderBy = 'year DESC';
+            break;
+        case 'countasc':
+            orderBy = 'count ASC';
+            break;
+        case 'countdesc':
+            orderBy = 'count DESC';
+            break;
+        default:
+            return res.status(400).json({ error: 'Invalid sort parameter' });
+    }
+
+    const query = `
+        SELECT year, COUNT(metadata_key) AS count
+        FROM metadata
+        GROUP BY year
+        ORDER BY ${orderBy};
+    `;
+
+    try {
+        const [results] = await localDB.query(query);
+        res.json(results);
+    } catch (err) {
+        console.error('Report DB error:', err);
+        return res.status(500).json({ error: 'Failed to generate report' });
+    }
+});
+
+app.get('/averagereport', (req, res) => {
+    const filePath = path.join(__dirname, 'averagereport.html');
+
+    try {
+        res.sendFile(filePath);
+    } catch (err) {
+        console.error('Failed to send data.html:', err);
+        res.status(404).send('Report not found');
+    }
+});
+
+app.get('/api/averagereport', async (req, res) => {
+    const sort = req.query.sort || 'yearasc';
+    
+    // order by
+    let orderBy = 'year ASC'; // default
+    
+    switch (sort) {
+        case 'yearasc':
+            orderBy = 'year ASC';
+            break;
+        case 'yeardesc':
+            orderBy = 'year DESC';
+            break;
+        case 'runtimeasc':
+            orderBy = 'avg ASC';
+            break;
+        case 'runtimedesc':
+            orderBy = 'avg DESC';
+            break;
+        default:
+            return res.status(400).json({ error: 'Invalid sort parameter' });
+    }
+
+    const query = `
+        SELECT year, avg(runtime_minutes) as 'avg'
+        FROM metadata
+        GROUP BY year
+        ORDER BY ${orderBy};
+    `;
+
+    try {
+        const [results] = await localDB.query(query);
+        res.json(results);
+    } catch (err) {
+        console.error('Report DB error:', err);
+        return res.status(500).json({ error: 'Failed to generate report' });
+    }
+});
+
+app.get('/ratioreport', (req, res) => {
+    const filePath = path.join(__dirname, 'ratioreport.html');
+
+    try {
+        res.sendFile(filePath);
+    } catch (err) {
+        console.error('Failed to send data.html:', err);
+        res.status(404).send('Report not found');
+    }
+});
+
+app.get('/api/ratioreport', async (req, res) => {
+    const sort = req.query.sort || 'yearasc';
+    
+    // order by
+    let orderBy = 'year ASC'; // default
+    
+    switch (sort) {
+        case 'yearasc':
+            orderBy = 'year ASC';
+            break;
+        case 'yeardesc':
+            orderBy = 'year DESC';
+            break;
+        case 'percentasc':
+            orderBy = 'adult_percentage ASC';
+            break;
+        case 'percentdesc':
+            orderBy = 'adult_percentage DESC';
+            break;
+        default:
+            return res.status(400).json({ error: 'Invalid sort parameter' });
+    }
+
+    const query = `
+        SELECT 
+            year,
+            COUNT(*) AS total_titles,
+            SUM(CASE WHEN is_adult = 't' THEN 1 ELSE 0 END) AS adult_titles,
+            ROUND(
+                SUM(CASE WHEN is_adult = 't' THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+                2
+            ) AS adult_percentage
+        FROM metadata
+        GROUP BY year
+        ORDER BY ${orderBy};
+    `;
+
+    try {
+        const [results] = await localDB.query(query);
+        res.json(results);
+    } catch (err) {
+        console.error('Report DB error:', err);
+        return res.status(500).json({ error: 'Failed to generate report' });
     }
 });
 
