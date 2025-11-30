@@ -61,6 +61,33 @@ const pools = {
     NewSlave: mysql.createPool(NewSlave)
 };
 
+// create transaction logs in the db if none exist
+async function createTransactionLogTable() {
+    const query = `
+        CREATE TABLE IF NOT EXISTS transaction_logs (
+	    log_id SERIAL PRIMARY KEY,
+   	    source_node VARCHAR(50) NOT NULL,
+	    operation VARCHAR(20) NOT NULL CHECK (operation IN ('INSERT', 'UPDATE', 'UPDATE_MIGRATE')),
+	    target_table VARCHAR(100) NOT NULL,
+	    target_key BIGINT NOT NULL,
+   	    old_values JSON,
+	    new_values JSON,
+	    nodes_replicated_to VARCHAR(120) DEFAULT '',
+	    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+	    status VARCHAR(50) NOT NULL
+    );`
+
+    console.log("Ensuring transaction_logs table exists...");
+    try {
+        await pools[currentNode].query(query);
+        console.log("transaction_logs table is ready.");
+    } catch (err) {
+        console.error("Failed to create transaction_logs table:", err);
+    }
+}
+
+createTransactionLogTable();
+
 // function to log transactions
 async function logTransaction(sourceNode, operation, targetTable, targetKey, oldValues, newValues, targetNodes) {
     const query = `
