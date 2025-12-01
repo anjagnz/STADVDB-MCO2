@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>IMDb Web Application Metadata Table</title>
+
+        <link rel="stylesheet" href="css/style.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    </head>
+    <body>
+        <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const tbody = document.getElementById('dataList');
+            fetch('/api/ratioreport')
+                .then(response => response.json())
+                .then(metadata => {
+                    tbody.innerHTML = '';
+                    
+                    // populate the table
+                    metadata.forEach(data => {
+                        const row = document.createElement('tr');
+
+                        // Helper to create a cell
+                        const createCell = (text) => {
+                        const td = document.createElement('td');
+                        td.textContent = text == null ? '' : text;
+                        return td;
+                        };
+
+                        // Append data cells
+                        row.appendChild(createCell(data.year));
+                        row.appendChild(createCell(data.total_titles));
+                        row.appendChild(createCell(data.adult_titles));
+                        row.appendChild(createCell(data.adult_percentage));
+                        tbody.appendChild(row);
+                    })
+                .catch(error => console.error('Error loading report:', error));
+                });
+        });
+
+        function loadReport(sort) {
+            window.history.replaceState({}, '', `/ratioreport?sort=${sort}`);
+            
+            // Fetch data from API with sort param
+            fetch(`/api/ratioreport?sort=${encodeURIComponent(sort)}`)
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('dataList');
+                    tbody.innerHTML = '';
+                    data.forEach(row => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `<td>${row.year}</td>
+                                        <td>${row.total_titles}</td>
+                                        <td>${row.adult_titles}</td>
+                                        <td>${row.adult_percentage}</td>
+                                        `;
+                        tbody.appendChild(tr);
+                    });
+                    const paginationContainer = document.querySelector('.pagination-container');
+                        if (paginationContainer) {
+                            paginationContainer.textContent = `Total rows loaded: ${data.length}`;
+                    }
+                })
+                .catch(err => {
+                    console.error('Load error:', err);
+                    alert('Failed to load report');
+                });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const sort = urlParams.get('sort') || 'yearasc';
+            loadReport(sort);
+        });
+        </script>
+        
+        <button class="icon-button" onclick="window.location.href='data.html';"><i class="fa-solid fa-arrow-left" style="color: var(--primary); margin: 30px;"></i></button>
+    
+        <div id="table-container">
+            <div id="table-header">
+                <h3>Percentage of Adult Media per Year Report</h3>
+            </div>
+            <div class = sort-container>
+                Sort by:
+                <button class="accent-button" onclick="loadReport('yearasc')">Year Ascending</button>
+                <button class="accent-button" onclick="loadReport('yeardesc')">Year Descending</button>
+                <button class="accent-button" onclick="loadReport('percentasc')">Percentage Ascending</button>
+                <button class="accent-button" onclick="loadReport('percentdesc')">Percentage Descending</button>
+            </div>
+            <table>
+                <tr>
+                    <th>year</th>
+                    <th>total titles</th>
+                    <th>adult titles</th>
+                    <th>adult percentage</th>
+                </tr>
+                <tbody id="dataList">
+                    <!-- data rows will be populated here -->
+                </tbody>
+            </table>
+            <div class="pagination-container">
+                <!-- total rows loaded -->
+            </div>
+            </div>
+        </div>
+    </body>
+</html>

@@ -214,8 +214,6 @@ app.get('/api/data', async (req, res) => {
             console.error("Cluster failure:", clusterErr);
             res.status(500).json({ error: 'System unavailable.' });
         }
-
-        //return res.status(500).json({ error: 'Failed to fetch metadata' });
     }
 });
 
@@ -474,6 +472,292 @@ app.post('/api/update', async (req, res) => {
         res.json({ success: true, message: `Records updated in ${targetNodes.join(', ')}`});
     } else {
         return res.status(500).json({ error: `Failed to update records in ${targetNodes.join(', ')}` });
+    }
+});
+
+app.get('/countreport', (req, res) => {
+    const filePath = path.join(__dirname, 'countreport.html');
+
+    try {
+        res.sendFile(filePath);
+    } catch (err) {
+        console.error('Failed to send data.html:', err);
+        res.status(404).send('Report not found');
+    }
+});
+
+app.get('/api/countreport', async (req, res) => {
+    const sort = req.query.sort || 'yearasc';
+    
+    // order by
+    let orderBy = 'year ASC'; // default
+    
+    switch (sort) {
+        case 'yearasc':
+            orderBy = 'year ASC';
+            break;
+        case 'yeardesc':
+            orderBy = 'year DESC';
+            break;
+        case 'countasc':
+            orderBy = 'count ASC';
+            break;
+        case 'countdesc':
+            orderBy = 'count DESC';
+            break;
+        default:
+            return res.status(400).json({ error: 'Invalid sort parameter' });
+    }
+
+    let query;
+
+    const getQuery = (node) => {
+        return `
+            SELECT year, COUNT(metadata_key) AS count
+            FROM metadata${tableSuffix[node]}
+            GROUP BY year
+            ORDER BY ${orderBy};
+        `;
+    }
+
+    try {
+        query = getQuery('Master');
+        const [results] = await pools['Master'].query(query);
+        console.log(`Returned ${results.length} rows from Master`);
+        res.json(results);
+    } catch (masterErr) {
+        console.error('Database error:', masterErr);
+        console.log('Master unreachable. Reconstructing report from OldSlave and NewSlave');
+
+        try {
+            // run the same query on BOTH slaves
+            query = getQuery('OldSlave');
+            const slave1Promise = pools['OldSlave'].query(query).catch(e => [[], []]);
+
+            query = getQuery('NewSlave')
+            const slave2Promise = pools['NewSlave'].query(query).catch(e => [[], []]);
+
+            const [[res1], [res2]] = await Promise.all([slave1Promise, slave2Promise]);
+
+            let combinedResults = [...res1, ...res2]; // put results from both slaves together
+
+            // sort combinedResults by the metadata_key
+            switch (sort) {
+                case 'yearasc':
+                    combinedResults.sort((a, b) => a.year - b.year);
+                    break;
+                case 'yeardesc':
+                    combinedResults.sort((a, b) => b.year - a.year);
+                    break;
+                case 'countasc':
+                    combinedResults.sort((a, b) => a.count - b.count);
+                    break;
+                case 'countdesc':
+                    combinedResults.sort((a, b) => b.count - a.count);
+                    break;
+                default:
+                    return res.status(400).json({ error: 'Invalid sort parameter' });
+            }
+
+            res.json(combinedResults);
+
+        } catch (clusterErr) {
+            console.error("Cluster failure:", clusterErr);
+            res.status(500).json({ error: 'System unavailable.' });
+        }
+    }
+});
+
+app.get('/averagereport', (req, res) => {
+    const filePath = path.join(__dirname, 'averagereport.html');
+
+    try {
+        res.sendFile(filePath);
+    } catch (err) {
+        console.error('Failed to send data.html:', err);
+        res.status(404).send('Report not found');
+    }
+});
+
+app.get('/api/averagereport', async (req, res) => {
+    const sort = req.query.sort || 'yearasc';
+    
+    // order by
+    let orderBy = 'year ASC'; // default
+    
+    switch (sort) {
+        case 'yearasc':
+            orderBy = 'year ASC';
+            break;
+        case 'yeardesc':
+            orderBy = 'year DESC';
+            break;
+        case 'runtimeasc':
+            orderBy = 'avg ASC';
+            break;
+        case 'runtimedesc':
+            orderBy = 'avg DESC';
+            break;
+        default:
+            return res.status(400).json({ error: 'Invalid sort parameter' });
+    }
+
+    let query;
+
+    const getQuery = (node) => {
+        return `
+            SELECT year, avg(runtime_minutes) as 'avg'
+            FROM metadata${tableSuffix[node]}
+            GROUP BY year
+            ORDER BY ${orderBy};
+        `;
+    }
+
+    try {
+        query = getQuery('Master');
+        const [results] = await pools['Master'].query(query);
+        console.log(`Returned ${results.length} rows from Master`);
+        res.json(results);
+    } catch (masterErr) {
+        console.error('Database error:', masterErr);
+        console.log('Master unreachable. Reconstructing report from OldSlave and NewSlave');
+
+        try {
+            // run the same query on BOTH slaves
+            query = getQuery('OldSlave');
+            const slave1Promise = pools['OldSlave'].query(query).catch(e => [[], []]);
+
+            query = getQuery('NewSlave')
+            const slave2Promise = pools['NewSlave'].query(query).catch(e => [[], []]);
+
+            const [[res1], [res2]] = await Promise.all([slave1Promise, slave2Promise]);
+
+            let combinedResults = [...res1, ...res2]; // put results from both slaves together
+
+            // sort combinedResults by the metadata_key
+            switch (sort) {
+                case 'yearasc':
+                    combinedResults.sort((a, b) => a.year - b.year);
+                    break;
+                case 'yeardesc':
+                    combinedResults.sort((a, b) => b.year - a.year);
+                    break;
+                case 'runtimeasc':
+                    combinedResults.sort((a, b) => a.avg - b.avg);
+                    break;
+                case 'runtimedesc':
+                    combinedResults.sort((a, b) => b.avg - a.avg);
+                    break;
+                default:
+                    return res.status(400).json({ error: 'Invalid sort parameter' });
+            }
+
+            res.json(combinedResults);
+
+        } catch (clusterErr) {
+            console.error("Cluster failure:", clusterErr);
+            res.status(500).json({ error: 'System unavailable.' });
+        }
+    }
+});
+
+app.get('/ratioreport', (req, res) => {
+    const filePath = path.join(__dirname, 'ratioreport.html');
+
+    try {
+        res.sendFile(filePath);
+    } catch (err) {
+        console.error('Failed to send data.html:', err);
+        res.status(404).send('Report not found');
+    }
+});
+
+app.get('/api/ratioreport', async (req, res) => {
+    const sort = req.query.sort || 'yearasc';
+    
+    // order by
+    let orderBy = 'year ASC'; // default
+    
+    switch (sort) {
+        case 'yearasc':
+            orderBy = 'year ASC';
+            break;
+        case 'yeardesc':
+            orderBy = 'year DESC';
+            break;
+        case 'percentasc':
+            orderBy = 'adult_percentage ASC';
+            break;
+        case 'percentdesc':
+            orderBy = 'adult_percentage DESC';
+            break;
+        default:
+            return res.status(400).json({ error: 'Invalid sort parameter' });
+    }
+
+    let query;
+
+    const getQuery = (node) => {
+        return `
+            SELECT 
+                year,
+                COUNT(*) AS total_titles,
+                SUM(CASE WHEN is_adult = 't' THEN 1 ELSE 0 END) AS adult_titles,
+                ROUND(
+                    SUM(CASE WHEN is_adult = 't' THEN 1 ELSE 0 END) * 100.0 / COUNT(*),
+                    2
+                ) AS adult_percentage
+            FROM metadata${tableSuffix[node]}
+            GROUP BY year
+            ORDER BY ${orderBy};
+        `;
+    }
+
+    try {
+        query = getQuery('Master');
+        const [results] = await pools['Master'].query(query);
+        console.log(`Returned ${results.length} rows from Master`);
+        res.json(results);
+    } catch (masterErr) {
+        console.error('Database error:', masterErr);
+        console.log('Master unreachable. Reconstructing report from OldSlave and NewSlave');
+
+        try {
+            // run the same query on BOTH slaves
+            query = getQuery('OldSlave');
+            const slave1Promise = pools['OldSlave'].query(query).catch(e => [[], []]);
+
+            query = getQuery('NewSlave')
+            const slave2Promise = pools['NewSlave'].query(query).catch(e => [[], []]);
+
+            const [[res1], [res2]] = await Promise.all([slave1Promise, slave2Promise]);
+
+            let combinedResults = [...res1, ...res2]; // put results from both slaves together
+
+            // sort combinedResults by the metadata_key
+            switch (sort) {
+                case 'yearasc':
+                    combinedResults.sort((a, b) => a.year - b.year);
+                    break;
+                case 'yeardesc':
+                    combinedResults.sort((a, b) => b.year - a.year);
+                    break;
+                case 'percentasc':
+                    combinedResults.sort((a, b) => a.adult_percentage - b.adult_percentage);
+                    break;
+                case 'percentdesc':
+                    combinedResults.sort((a, b) => b.adult_percentage - a.adult_percentage);
+                    break;
+                default:
+                    return res.status(400).json({ error: 'Invalid sort parameter' });
+            }
+
+            res.json(combinedResults);
+
+        } catch (clusterErr) {
+            console.error("Cluster failure:", clusterErr);
+            res.status(500).json({ error: 'System unavailable.' });
+        }
     }
 });
 
