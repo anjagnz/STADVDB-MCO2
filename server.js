@@ -609,10 +609,10 @@ app.post('/api/recover', async (req, res) => {
                                     console.error(`Failed to delete migrated record from old slave ${oldSlave}:`, delErr);
                                 }
                             }
+                            
+                            successfulNodes.push(target);
+                            successCount++;
                         }
-
-                        successfulNodes.push(target);
-                        successCount++;
                     } catch (err) {
                         console.error(`Recovery DB error on ${target} for log ID ${log.log_id}:`, err);
                     }
