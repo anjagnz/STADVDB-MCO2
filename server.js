@@ -4,10 +4,20 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
-//const port = 3000;
+const session = require('express-session');
+const port = 3000;
 
 app.use(express.json());
 app.use(cors())
+app.use(session({
+    secret: 'your-secret-key',
+    resave: false,
+    saveUninitialized: true,
+    cookie: {secure: false},
+    genid: function(req) {
+        return require('crypto').randomBytes(16).toString('hex');
+    }
+}))
 
 // initialize connection to all three nodes
 const MasterNode = {
@@ -40,13 +50,6 @@ const NewSlave = {
     keepAliveInitialDelay: 0 
 }
 
-// dotenv used for node testing purposes
-const dotenv = require('dotenv');
-dotenv.config({path: process.argv[2]});
-
-const currentNode = process.env.NODE_NAME;
-const port = parseInt(process.env.NODE_PORT);
-
 // because Denzel named the tables differently in each node
 const tableSuffix = {
     Master : "",
@@ -60,6 +63,56 @@ const pools = {
     OldSlave: mysql.createPool(OldSlave),
     NewSlave: mysql.createPool(NewSlave)
 };
+
+const activeClients = {};
+
+// helper functions for load balancing
+
+// assigns node to client based on their id
+function assignNode(userId) {
+    switch(userId) {
+        case 0:
+            return "Master";
+        case 1:
+            return "OldSlave";
+        case 2:
+            return "NewSlave";
+        default:
+            return "Master";
+    }
+}
+
+// assigns user id using hash
+function assignUserId(req) {
+    if(!req.session) {
+        console.error("Session does not exist");
+        return 0;
+    }
+
+    const sessionId = req.session.id;
+
+    if(req.session.userId !== undefined) {
+        return req.session.userId;
+    }
+
+    let hash = 5381;
+    for(let i = 0; i < sessionId.length; i++) {
+        hash = ((hash << 5) + hash) + sessionId.charCodeAt(i);
+    }
+
+    req.session.userId = Math.abs(hash) % 3;
+    console.log(`New session ${sessionId} has been created and assigned to node id: ${req.session.userId} (${assignNode(req.session.userId)})`);
+
+    activeClients[sessionId] = req.session.userId;
+
+    return req.session.userId;
+}
+
+app.use((req, res, next) => {
+    const userId = assignUserId(req);
+    req.assignedNode = assignNode(userId);
+    next();
+})
 
 // create transaction logs in the db if none exist
 async function createTransactionLogTable() {
@@ -77,12 +130,14 @@ async function createTransactionLogTable() {
 	    status VARCHAR(50) NOT NULL
     );`
 
-    console.log("Ensuring transaction_logs table exists...");
-    try {
-        await pools[currentNode].query(query);
-        console.log("transaction_logs table is ready.");
-    } catch (err) {
-        console.error("Failed to create transaction_logs table:", err);
+    console.log("Ensuring transaction_logs table exists for all nodes...");
+    for (const nodeName of ["Master", "OldSlave", "NewSlave"]) {
+        try {
+            await pools[nodeName].query(query);
+            console.log(`transaction_logs table is ready for ${nodeName} node`);
+        } catch (err) {
+            console.error("Failed to create transaction_logs table:", err);
+        }
     }
 }
 
@@ -251,7 +306,7 @@ app.post('/api/create', async (req, res) => {
                 console.log(`Master generated ID: ${generatedId}`);
 
                 // log the transaction before insertion into slaves
-                logId = await logTransaction(currentNode, 'INSERT', `metadata`, generatedId, null, newValues, targetNodes);
+                logId = await logTransaction(req.assignedNode, 'INSERT', `metadata`, generatedId, null, newValues, targetNodes);
 
                 successfulNodes.push(target);
             } else {
@@ -271,7 +326,7 @@ app.post('/api/create', async (req, res) => {
                         generatedId = Math.max(maxOld, maxNew) + 1;
                         console.log(`Generated Fallback ID: ${generatedId}`);
                         
-                        logId = await logTransaction(currentNode, 'INSERT', `metadata`, generatedId, null, newValues, targetNodes);
+                        logId = await logTransaction(req.assignedNode, 'INSERT', `metadata`, generatedId, null, newValues, targetNodes);
                     } catch (idErr) {
                         console.error("CRITICAL: One slave is also down! Could not query Slaves for Max ID.", idErr);
                         throw new Error("ID Generation failed. Cluster unavailable.");
@@ -300,7 +355,7 @@ app.post('/api/create', async (req, res) => {
     // update transaction log with success/failure status
     if (logId) {
         const status = (successCount === targetNodes.length) ? 'SUCCESS' : 'FAILED';
-        await updateTransactionLog(currentNode, logId, successfulNodes, status);
+        await updateTransactionLog(req.assignedNode, logId, successfulNodes, status);
     }
 
     // as long as one node has successfully INSERTed the new row, we assume there is a log that means the INSERT can be replicated in the other node
@@ -318,12 +373,12 @@ app.get('/api/edit', async (req, res) => {
     let query;
     try {
         // current node read should never fail
-        query = `SELECT * FROM metadata${tableSuffix[currentNode]} WHERE metadata_key = ?`;
+        query = `SELECT * FROM metadata${tableSuffix[req.assignedNode]} WHERE metadata_key = ?`;
 
-        const [localResults] = await pools[currentNode].query(query, [metadata_key])
+        const [localResults] = await pools[req.assignedNode].query(query, [metadata_key])
         if (localResults.length > 0) {
             return res.json(localResults[0]);
-        } else if (currentNode === 'Master') {
+        } else if (req.assignedNode === 'Master') {
             // Master is online but row is not in master
             return res.status(404).json({ error: 'Record not found in Master' });
         }
@@ -343,7 +398,7 @@ app.get('/api/edit', async (req, res) => {
             console.error("Master unreachable. Attempting to read other slave: ", masterErr.message);
 
             try {
-                const otherSlave = (currentNode === 'OldSlave') ? 'NewSlave' : 'OldSlave';
+                const otherSlave = (req.assignedNode === 'OldSlave') ? 'NewSlave' : 'OldSlave';
                 query = `SELECT * FROM metadata${tableSuffix[otherSlave]} WHERE metadata_key = ?`;
                 
                 const [otherResults] = await pools[otherSlave].query(query, [metadata_key]);
@@ -407,7 +462,7 @@ app.post('/api/update', async (req, res) => {
     const newValues = {metadata_key, tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year};
 
     // log transaction before performing updates
-    logId = await logTransaction(currentNode, isMigration ? 'UPDATE_MIGRATE' : 'UPDATE', `metadata`, metadata_key, null, newValues, targetNodes);
+    logId = await logTransaction(req.assignedNode, isMigration ? 'UPDATE_MIGRATE' : 'UPDATE', `metadata`, metadata_key, null, newValues, targetNodes);
 
     // if row is moving from one slave to another, delete from the old slave before the update/insert loop
     if (isMigration) {
@@ -464,7 +519,7 @@ app.post('/api/update', async (req, res) => {
     // update transaction log with success/failure status
     if (logId) {
         const status = (successCount === targetNodes.length) ? 'SUCCESS' : 'FAILED';
-        await updateTransactionLog(currentNode, logId, successfulNodes, status);
+        await updateTransactionLog(req.assignedNode, logId, successfulNodes, status);
     }
 
     // as long as one node has successfully UPDATEd the new row, we assume there is a log that means the UPDATE can be replicated in the other node
@@ -766,7 +821,7 @@ app.post('/api/recover', async (req, res) => {
     try {
         console.log("Starting recovery process...");
 
-        const [failedLogs] = await pools[currentNode].query(`
+        const [failedLogs] = await pools[req.assignedNode].query(`
             SELECT * FROM transaction_logs
             WHERE status IN ('PENDING', 'FAILED')
             ORDER BY timestamp ASC
@@ -886,7 +941,7 @@ app.post('/api/recover', async (req, res) => {
                 }
 
                 const status = (successCount === targetNodes.length) ? 'SUCCESS' : 'FAILED';
-                await updateTransactionLog(currentNode, log.log_id, successfulNodes, status);
+                await updateTransactionLog(req.assignedNode, log.log_id, successfulNodes, status);
 
                 if (status === 'SUCCESS') {
                     recovered.push(log.log_id);
@@ -910,7 +965,7 @@ app.post('/api/recover', async (req, res) => {
 app.get('/api/logs', async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 100; // default the limit to 50 logs
-        const [logs] = await pools[currentNode].query(`
+        const [logs] = await pools[req.assignedNode].query(`
             SELECT * FROM transaction_logs
             ORDER BY timestamp DESC LIMIT ?`,
             [limit]
