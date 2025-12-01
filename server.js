@@ -4,10 +4,20 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
-//const port = 3000;
+const session = require('express-session');
+const port = 3000;
 
 app.use(express.json());
 app.use(cors())
+app.use(session({
+    secret: 'your-secret-key',
+    resave: false,
+    saveUninitialized: true,
+    cookie: {secure: false},
+    genid: function(req) {
+        return require('crypto').randomBytes(16).toString('hex');
+    }
+}))
 
 // initialize connection to all three nodes
 const MasterNode = {
@@ -40,13 +50,6 @@ const NewSlave = {
     keepAliveInitialDelay: 0 
 }
 
-// dotenv used for node testing purposes
-const dotenv = require('dotenv');
-dotenv.config({path: process.argv[2]});
-
-const currentNode = process.env.NODE_NAME;
-const port = parseInt(process.env.NODE_PORT);
-
 // because Denzel named the tables differently in each node
 const tableSuffix = {
     Master : "",
@@ -60,6 +63,56 @@ const pools = {
     OldSlave: mysql.createPool(OldSlave),
     NewSlave: mysql.createPool(NewSlave)
 };
+
+const activeClients = {};
+
+// helper functions for load balancing
+
+// assigns node to client based on their id
+function assignNode(userId) {
+    switch(userId) {
+        case 0:
+            return "Master";
+        case 1:
+            return "OldSlave";
+        case 2:
+            return "NewSlave";
+        default:
+            return "Master";
+    }
+}
+
+// assigns user id using hash
+function assignUserId(req) {
+    if(!req.session) {
+        console.error("Session does not exist");
+        return 0;
+    }
+
+    const sessionId = req.session.id;
+
+    if(req.session.userId !== undefined) {
+        return req.session.userId;
+    }
+
+    let hash = 5381;
+    for(let i = 0; i < sessionId.length; i++) {
+        hash = ((hash << 5) + hash) + sessionId.charCodeAt(i);
+    }
+
+    req.session.userId = Math.abs(hash) % 3;
+    console.log(`New session ${sessionId} has been created and assigned to node id: ${req.session.userId} (${assignNode(req.session.userId)})`);
+
+    activeClients[sessionId] = req.session.userId;
+
+    return req.session.userId;
+}
+
+app.use((req, res, next) => {
+    const userId = assignUserId(req);
+    req.assignedNode = assignNode(userId);
+    next();
+})
 
 // create transaction logs in the db if none exist
 async function createTransactionLogTable() {
@@ -77,12 +130,14 @@ async function createTransactionLogTable() {
 	    status VARCHAR(50) NOT NULL
     );`
 
-    console.log("Ensuring transaction_logs table exists...");
-    try {
-        await pools[currentNode].query(query);
-        console.log("transaction_logs table is ready.");
-    } catch (err) {
-        console.error("Failed to create transaction_logs table:", err);
+    console.log("Ensuring transaction_logs table exists for all nodes...");
+    for (const nodeName of ["Master", "OldSlave", "NewSlave"]) {
+        try {
+            await pools[nodeName].query(query);
+            console.log(`transaction_logs table is ready for ${nodeName} node`);
+        } catch (err) {
+            console.error("Failed to create transaction_logs table:", err);
+        }
     }
 }
 
@@ -154,7 +209,7 @@ app.get('/api/data', async (req, res) => {
     if (isNaN(offset) || offset < 0) offset = 0;
     if (isNaN(limit) || limit < 1 || limit > 100) limit = 20; // cap max limit
 
-    console.log(`Fetching data: OFFSET=${offset}, LIMIT=${limit}`);
+    console.log(`Fetching data from ${req.assignedNode}: OFFSET=${offset}, LIMIT=${limit}`);
 
     const search = req.query.search;
     const hasSearch = search && search.trim().length > 0;
@@ -221,11 +276,13 @@ app.get('/api/data', async (req, res) => {
 
 // create
 app.post('/api/create', async (req, res) => {
+    const crashNode = req.headers['crash-node'];
+
     const {tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year} = req.body;
 
     const values = [tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year];
     const newValues = {tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year};
-
+    
     const yearInt = parseInt(year); // needed to determine correct slave for replication
 
     const targetSlave = (yearInt < 2012) ? 'OldSlave' : 'NewSlave';
@@ -244,6 +301,11 @@ app.post('/api/create', async (req, res) => {
             let query, currentValues;
 
             if (target === 'Master') {
+
+                if (crashNode === 'master-crash') {
+                    throw new Error("Simulated Master crash before INSERT operation.");
+                }
+
                 query = `INSERT INTO metadata${tableSuffix[target]} (tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year) VALUES (?, ?, ?, ?, ?, ?, ?)`;
                 
                 const [result] = await pools['Master'].query(query, values);
@@ -252,8 +314,7 @@ app.post('/api/create', async (req, res) => {
                 generatedId = result.insertId;
                 console.log(`Master generated ID: ${generatedId}`);
 
-                // log the transaction before insertion into slaves
-                logId = await logTransaction(currentNode, 'INSERT', `metadata`, generatedId, null, newValues, targetNodes);
+                logId = await logTransaction(req.assignedNode, 'INSERT', `metadata${tableSuffix['Master']}`, generatedId, null, newValues, targetNodes);
 
                 successfulNodes.push(target);
             } else {
@@ -273,11 +334,18 @@ app.post('/api/create', async (req, res) => {
                         generatedId = Math.max(maxOld, maxNew) + 1;
                         console.log(`Generated Fallback ID: ${generatedId}`);
                         
-                        logId = await logTransaction(currentNode, 'INSERT', `metadata`, generatedId, null, newValues, targetNodes);
+                        logId = await logTransaction(req.assignedNode, 'INSERT', `metadata${tableSuffix[target]}`, generatedId, null, newValues, targetNodes);
                     } catch (idErr) {
                         console.error("CRITICAL: One slave is also down! Could not query Slaves for Max ID.", idErr);
                         throw new Error("ID Generation failed. Cluster unavailable.");
                     }
+                }
+
+                if (target === 'OldSlave' && crashNode === 'oldslave-crash') {
+                    throw new Error("Simulated OldSlave crash during INSERT operation replication.");
+                } 
+                if (target === 'NewSlave' && crashNode === 'newslave-crash') {
+                    throw new Error("Simulated NewSlave crash during INSERT operation replication.");
                 }
 
                 query = `INSERT INTO metadata${tableSuffix[target]} 
@@ -302,7 +370,7 @@ app.post('/api/create', async (req, res) => {
     // update transaction log with success/failure status
     if (logId) {
         const status = (successCount === targetNodes.length) ? 'SUCCESS' : 'FAILED';
-        await updateTransactionLog(currentNode, logId, successfulNodes, status);
+        await updateTransactionLog(req.assignedNode, logId, successfulNodes, status);
     }
 
     // as long as one node has successfully INSERTed the new row, we assume there is a log that means the INSERT can be replicated in the other node
@@ -320,12 +388,12 @@ app.get('/api/edit', async (req, res) => {
     let query;
     try {
         // current node read should never fail
-        query = `SELECT * FROM metadata${tableSuffix[currentNode]} WHERE metadata_key = ?`;
+        query = `SELECT * FROM metadata${tableSuffix[req.assignedNode]} WHERE metadata_key = ?`;
 
-        const [localResults] = await pools[currentNode].query(query, [metadata_key])
+        const [localResults] = await pools[req.assignedNode].query(query, [metadata_key])
         if (localResults.length > 0) {
             return res.json(localResults[0]);
-        } else if (currentNode === 'Master') {
+        } else if (req.assignedNode === 'Master') {
             // Master is online but row is not in master
             return res.status(404).json({ error: 'Record not found in Master' });
         }
@@ -345,7 +413,7 @@ app.get('/api/edit', async (req, res) => {
             console.error("Master unreachable. Attempting to read other slave: ", masterErr.message);
 
             try {
-                const otherSlave = (currentNode === 'OldSlave') ? 'NewSlave' : 'OldSlave';
+                const otherSlave = (req.assignedNode === 'OldSlave') ? 'NewSlave' : 'OldSlave';
                 query = `SELECT * FROM metadata${tableSuffix[otherSlave]} WHERE metadata_key = ?`;
                 
                 const [otherResults] = await pools[otherSlave].query(query, [metadata_key]);
@@ -369,6 +437,8 @@ app.get('/api/edit', async (req, res) => {
 
 // POST FOR EDIT
 app.post('/api/update', async (req, res) => {
+    const crashNode = req.headers['crash-node'];
+
     console.log("Received update request:", req.body);
 
     const {
@@ -400,21 +470,44 @@ app.post('/api/update', async (req, res) => {
     const isMigration = (sourceSlave !== destSlave); // if true, the row is moving from one slave to another
 
     //always update Master, and always write to the Destination Slave
-    let targetNodes = ['Master', destSlave]; 
+    const targetNodes = ['Master', destSlave]; 
 
     let logId = null;
     let successCount = 0;
     let successfulNodes = [];
 
+    let oldValues = null;
+    try {
+        const [oldData] = await pools['Master'].query(
+            `SELECT * FROM metadata WHERE metadata_key = ?`,
+            [metadata_key]
+        );
+        oldValues = oldData[0] || null;
+    } catch (err) {
+        console.error("Failed to fetch old values for logging:", err);
+    }
+
     const newValues = {metadata_key, tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year};
 
     // log transaction before performing updates
-    logId = await logTransaction(currentNode, isMigration ? 'UPDATE_MIGRATE' : 'UPDATE', `metadata`, metadata_key, null, newValues, targetNodes);
+    logId = await logTransaction(req.assignedNode, isMigration ? 'UPDATE_MIGRATE' : 'UPDATE', `metadata`, metadata_key, oldValues, newValues, targetNodes);
 
     // if row is moving from one slave to another, delete from the old slave before the update/insert loop
     if (isMigration) {
         console.log(`Migration detected: Moving from ${sourceSlave} to ${destSlave}`);
-        targetNodes = ['Master', 'OldSlave', 'NewSlave'];
+        try {
+            const isSourceCrash = (sourceSlave === 'OldSlave' && crashNode === 'oldslave-crash') || (sourceSlave === 'NewSlave' && crashNode === 'newslave-crash');
+
+            if (isSourceCrash) {
+                throw new Error(`Simulated ${sourceSlave} crash during DELETE operation of migration.`);
+            }
+
+            console.log(`Deleting from old node ${sourceSlave}...`);
+            const delQuery = `DELETE FROM metadata${tableSuffix[sourceSlave]} WHERE metadata_key = ?`;
+            await pools[sourceSlave].query(delQuery, [metadata_key]);
+        } catch (err) {
+            console.error(`Deletion failed on ${sourceSlave}:`, err);
+        }
     }
 
     // params for simple update
@@ -428,14 +521,14 @@ app.post('/api/update', async (req, res) => {
             let query;
             let params;
 
-            if (isMigration && target === destSlave) {
+            if (isMigration && target !== 'Master') {
                 // current target node is the slave where the row is migrating to, so perform INSERT
                 console.log(`Migrating (Inserting) into ${target}...`);
                 query = `INSERT INTO metadata${tableSuffix[target]} 
                         (metadata_key, tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year) 
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
                 params = insertParams;
-            } else if (!isMigration || target === 'Master') { 
+            } else { 
                 // not the slave the row is migrating to, so UPDATE as normal
                 console.log(`Updating ${target}...`);
                 query = `UPDATE metadata${tableSuffix[target]} 
@@ -447,13 +540,18 @@ app.post('/api/update', async (req, res) => {
                             year = ? 
                             WHERE metadata_key = ?`;
                 params = updateParams;
-            } else {
-                // node whose row needs to be deleted in migration
-                console.log(`Deleting from old node ${sourceSlave}...`);
-                query = `DELETE FROM metadata${tableSuffix[sourceSlave]} WHERE metadata_key = ?`;
-                params = [metadata_key];
             }
-            
+
+            if(target === 'Master' && crashNode === 'master-crash') {
+                throw new Error(`Simulated Master crash during UPDATE operation.`);
+            }
+            if(target === 'OldSlave' && crashNode === 'oldslave-crash') {
+                throw new Error(`Simulated OldSlave crash during UPDATE/MIGRATION INSERT operation.`);
+            }
+            if(target === 'NewSlave' && crashNode === 'newslave-crash') {
+                throw new Error(`Simulated NewSlave crash during UPDATE/MIGRATION INSERT operation.`);
+            }
+
             await pools[target].query(query, params);
             successfulNodes.push(target);
             successCount++;
@@ -466,7 +564,7 @@ app.post('/api/update', async (req, res) => {
     // update transaction log with success/failure status
     if (logId) {
         const status = (successCount === targetNodes.length) ? 'SUCCESS' : 'FAILED';
-        await updateTransactionLog(currentNode, logId, successfulNodes, status);
+        await updateTransactionLog(req.assignedNode, logId, successfulNodes, status);
     }
 
     // as long as one node has successfully UPDATEd the new row, we assume there is a log that means the UPDATE can be replicated in the other node
@@ -482,7 +580,7 @@ app.post('/api/recover', async (req, res) => {
     try {
         console.log("Starting recovery process...");
 
-        const [failedLogs] = await pools[currentNode].query(`
+        const [failedLogs] = await pools[req.assignedNode].query(`
             SELECT * FROM transaction_logs
             WHERE status IN ('PENDING', 'FAILED')
             ORDER BY timestamp ASC
@@ -495,16 +593,14 @@ app.post('/api/recover', async (req, res) => {
 
         for(const log of failedLogs) {
             try {
-                const newValues = log.new_values ? log.new_values : null;
+                const newValues = log.new_values ? JSON.parse(log.new_values) : null;
 
                 console.log(`Recovering log ID: ${log.log_id}, with operation: ${log.operation}`);
 
                 let targetNodes = [];
 
                 // determine target nodes based on the year
-                if (log.operation === 'UPDATE_MIGRATE') {
-                    targetNodes = ['Master', 'OldSlave', 'NewSlave'];
-                } else if (newValues && newValues.year) {
+                if (newValues && newValues.year) {
                     const yearInt = parseInt(newValues.year);
                     const targetSlave = (yearInt < 2012) ? 'OldSlave' : 'NewSlave';
                     targetNodes = ['Master', targetSlave];
@@ -553,12 +649,13 @@ app.post('/api/recover', async (req, res) => {
                             successfulNodes.push(target);
                             successCount++;
                         } else if (log.operation === 'UPDATE_MIGRATE') {
+                            const oldYear = oldValues ? parseInt(oldValues.year) : null;
                             const newYear = newValues ? parseInt(newValues.year) : null;
 
                             // determine source and destination slaves
-                            const dstSlave = (newYear < 2012) ? 'OldSlave' : 'NewSlave';
-                            const srcSlave = (dstSlave === 'OldSlave') ? 'NewSlave' : 'OldSlave';
-                            
+                            const oldSlave = (oldYear < 2012) ? 'OldSlave' : 'NewSlave';
+                            const newSlave = (newYear < 2012) ? 'OldSlave' : 'NewSlave';
+
                             if (target === 'Master') {
                                 const query = `UPDATE metadata${tableSuffix[target]}
                                     SET primary_title = ?,
@@ -571,8 +668,7 @@ app.post('/api/recover', async (req, res) => {
                                 `;
                                 
                                 await pools[target].query(query, updateParams);
-                            } else if (target === dstSlave) {
-                                // attempt to insert to destination slave and delete from old slave
+                            } else if (target === newSlave) {
                                 const query = `INSERT INTO metadata${tableSuffix[target]}
                                     (metadata_key, tconst, primary_title, original_title, title_type, is_adult, runtime_minutes, year)
                                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -587,22 +683,30 @@ app.post('/api/recover', async (req, res) => {
                                 `;
 
                                 await pools[target].query(query, insertParams);
-                            } else if (target === srcSlave) {
-                                const delQuery = `DELETE FROM metadata${tableSuffix[srcSlave]} WHERE metadata_key = ?`;
-                                await pools[srcSlave].query(delQuery, [log.target_key]);
+                            }
+
+                            // delete from old slave if its different from the destination slave
+
+                            if (oldSlave !== newSlave) {
+                                try {
+                                    const delQuery = `DELETE FROM metadata${tableSuffix[oldSlave]} WHERE metadata_key = ?`;
+                                    await pools[oldSlave].query(delQuery, [log.target_key]);
+                                    console.log(`Deleted migrated record from old slave ${oldSlave}`);
+                                } catch (delErr) {
+                                    console.error(`Failed to delete migrated record from old slave ${oldSlave}:`, delErr);
+                                }
                             }
 
                             successfulNodes.push(target);
                             successCount++;
                         }
-
                     } catch (err) {
                         console.error(`Recovery DB error on ${target} for log ID ${log.log_id}:`, err);
                     }
                 }
 
                 const status = (successCount === targetNodes.length) ? 'SUCCESS' : 'FAILED';
-                await updateTransactionLog(currentNode, log.log_id, successfulNodes, status);
+                await updateTransactionLog(req.assignedNode, log.log_id, successfulNodes, status);
 
                 if (status === 'SUCCESS') {
                     recovered.push(log.log_id);
@@ -626,7 +730,7 @@ app.post('/api/recover', async (req, res) => {
 app.get('/api/logs', async (req, res) => {
     try {
         const limit = parseInt(req.query.limit) || 100; // default the limit to 50 logs
-        const [logs] = await pools[currentNode].query(`
+        const [logs] = await pools[req.assignedNode].query(`
             SELECT * FROM transaction_logs
             ORDER BY timestamp DESC LIMIT ?`,
             [limit]
