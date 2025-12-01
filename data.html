@@ -159,6 +159,12 @@
             loadBatch();
         });
 
+        async function triggerRecovery() {
+            const result = await fetch('/api/recover', {method: 'POST'});
+            const data = await result.json();
+            alert(`Recovered: ${data.recovered}. Failed to recover: ${data.failed}`);
+        }
+
         // dropdown menu for reports
         function myFunction() {
             document.getElementById("myDropdown").classList.toggle("show");
@@ -187,6 +193,7 @@
             <!-- feature bar -->
             <div class = "featureBar">
                 <button class="green-button" onclick="window.location.href='create.html';">Create</button>
+                <button class="red-button" style="color: var(--background); border: 3px solid var(--background);" onclick="triggerRecovery()">Recover</button>
                 <button class="red-button" onclick="window.location.href='index.html';">Disconnect</button>
                 <!-- reports dropdown -->
                 <div class="dropdown">
