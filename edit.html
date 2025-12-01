@@ -55,6 +55,25 @@
                 <span class="input-header">year</span>
                 <input type="number" class="input-field" id="year" value="2025" required>
             </div>
+            <div class="input-container">
+                <span class="input-header" style="color: var(--background)">Simulate Crash on Node</span>
+                <div class="radio-container">
+                    <input type="radio" id="no-crash" name="node_crash" checked>
+                    <label class="radio-header" for="no-crash">None</label>
+                </div>
+                <div class="radio-container">
+                    <input type="radio" id="master-crash" name="node_crash">
+                    <label class="radio-header" for="master-crash">Master</label>
+                </div>
+                <div class="radio-container">
+                    <input type="radio" id="oldslave-crash" name="node_crash">
+                    <label class="radio-header" for="oldslave-crash">Old Slave</label>
+                </div>
+                <div class="radio-container">
+                    <input type="radio" id="newslave-crash" name="node_crash">
+                    <label class="radio-header" for="newslave-crash">New Slave</label>
+                </div>
+            </div>
             <button class="accent-button" style="margin: 30px;">Save Changes</button>
         </div>
 
@@ -125,9 +144,14 @@
                         oldYear: originalYear
                     };
 
+                    const crashNode = document.querySelector('input[name="node_crash"]:checked').id;
+
                     fetch('/api/update', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Crash-Node': crashNode
+                        },
                         body: JSON.stringify(updatedData)
                     })
 
