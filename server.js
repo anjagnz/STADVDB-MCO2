@@ -259,8 +259,8 @@ app.post('/api/create', async (req, res) => {
         }
         return res.status(500).json({ error: 'Failed to acquire table locks' });
     }
-    // REMOVE LATER: 
-    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay for testing, to observe waiting for lock to release
+    
+    //await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay for testing, to observe waiting for lock to release
 
     let successCount = 0;
     let generatedId = null;
@@ -485,8 +485,8 @@ app.post('/api/update', async (req, res) => {
                 
                 lockedConnections.set(node, conn);
                 console.log(`Acquired EXCLUSIVE lock on ${node} for ROW ${metadata_key}`);
-                // REMOVE LATER:
-                await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay for testing, to observe waiting for lock to release
+                
+                //await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay for testing, to observe waiting for lock to release
             } catch (lockErr) {
                 console.error(`Failed to lock ${node}:`, lockErr.message);
                 // release locks
