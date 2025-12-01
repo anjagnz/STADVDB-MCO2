@@ -117,6 +117,17 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadBatch(); // Load first batch
 
+            // auto-refresh every 10 seconds, for updated data
+            setInterval(() => {
+                // only reload if user hasn't scrolled down too far
+                if (window.scrollY < 100) { // Only if near top of page
+                    currentOffset = 0;
+                    hasMore = true;
+                    document.getElementById('dataList').innerHTML = '';
+                    loadBatch();
+                }
+            }, 10000);
+
             const loadButton = document.getElementById('load-button');
             if (loadButton) {
                 loadButton.addEventListener('click', () => {
