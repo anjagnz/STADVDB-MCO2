@@ -409,6 +409,7 @@ app.post('/api/create', async (req, res) => {
     // as long as one node has successfully INSERTed the new row, we assume there is a log that means the INSERT can be replicated in the other node
     if (successCount > 0) {
         res.json({ success: true, message: `Records created in ${targetNodes.join(', ')}`});
+        await conn.query('UNLOCK TABLES');
     } else {
         return res.status(500).json({ error: `Failed to create metadata in ${targetNodes.join(', ')}` });
     }
