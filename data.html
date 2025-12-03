@@ -129,34 +129,26 @@
             const searchInput = document.getElementById('searchInput');
             if (searchInput) {
                 searchInput.addEventListener('input', (e) => {
-                    currentSearch = e.target.value.trim();
-                    currentOffset = 0;
-                    hasMore = true;
-                    document.getElementById('dataList').innerHTML = '';
-                    loadBatch();
-                });
+                // explicitly set to empty string if blank
+                const rawValue = e.target.value || '';
+                currentSearch = rawValue.trim(); // "" if empty/whitespace
+
+                currentOffset = 0;
+                hasMore = true;
+                
+                // fixed button
+                const btn = document.getElementById('load-button');
+                if (btn) {
+                    btn.textContent = 'Load More';
+                    btn.disabled = false;
+                    btn.style.display = 'inline-block';
+                }
+                document.getElementById('dataList').innerHTML = '';
+                loadBatch();
+            });
             } else {
                 console.warn('Search input #searchInput not found');
             }
-        });
-
-        searchInput.addEventListener('input', (e) => {
-            // explicitly set to empty string if blank
-            const rawValue = e.target.value || '';
-            currentSearch = rawValue.trim(); // "" if empty/whitespace
-
-            currentOffset = 0;
-            hasMore = true;
-            
-            // fixed button
-            const btn = document.getElementById('load-button');
-            if (btn) {
-                btn.textContent = 'Load More';
-                btn.disabled = false;
-                btn.style.display = 'inline-block';
-            }
-            document.getElementById('dataList').innerHTML = '';
-            loadBatch();
         });
 
         async function triggerRecovery() {
