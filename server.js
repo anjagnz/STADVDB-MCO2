@@ -318,7 +318,7 @@ app.post('/api/create', async (req, res) => {
     let logId = null;
     let successfulNodes = [];
 
-    for (const target of targetNodes) {
+    try { for (const target of targetNodes) {
         try {
             console.log(`Creating record in ${target}...`);
             let query, currentValues;
@@ -387,8 +387,21 @@ app.post('/api/create', async (req, res) => {
 
             successCount++;
 
-        } catch (err) {
-            console.error('Create error:', err);
+        } catch (err) { // change
+            console.error(`Database insert error on ${target}:`, err);
+            throw err;
+        }
+
+        // commit transaction & release locks
+        for (const [node, conn] of lockedConnections) {
+                await conn.query('COMMIT');
+                await conn.query('UNLOCK TABLES'); // Explicit unlock
+                conn.release();
+                console.log(`Released table lock on ${node}`);
+        } 
+    }
+    } catch(err) {
+        console.error('Create error:', err);
             for (const [node, conn] of lockedConnections) {
                 try {
                     await conn.query('ROLLBACK');
@@ -396,8 +409,7 @@ app.post('/api/create', async (req, res) => {
                 } catch (e) {}
                 conn.release();
             }
-            return res.status(500).json({ error: 'Create operation failed' });
-        }
+        return res.status(500).json({ error: 'Create operation failed' });
     }
     
     // update transaction log with success/failure status
@@ -409,7 +421,6 @@ app.post('/api/create', async (req, res) => {
     // as long as one node has successfully INSERTed the new row, we assume there is a log that means the INSERT can be replicated in the other node
     if (successCount > 0) {
         res.json({ success: true, message: `Records created in ${targetNodes.join(', ')}`});
-        await conn.query('UNLOCK TABLES');
     } else {
         return res.status(500).json({ error: `Failed to create metadata in ${targetNodes.join(', ')}` });
     }
